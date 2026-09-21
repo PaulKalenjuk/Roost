@@ -363,3 +363,24 @@ class ApiBlankStringTests(TestCase):
         )
         self.assertEqual(response.status_code, 201, response.content)
         self.assertEqual(Decimal(response.json()["share_pct"]), Decimal("0.6000"))
+
+    def test_category_create_exactly_as_the_picker_sends(self):
+        """The UI's inline "+ Add new category" posts this shape."""
+        response = self.client.post(
+            "/api/categories/",
+            {"name": "Electricity", "kind": "utility", "default_apportionment": "area"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["kind"], "utility")
+        self.assertEqual(response.json()["default_apportionment"], "area")
+
+    def test_category_name_is_unique(self):
+        Category.objects.create(name="Water")
+        response = self.client.post(
+            "/api/categories/",
+            {"name": "Water", "kind": "utility", "default_apportionment": "area"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("name", response.json())

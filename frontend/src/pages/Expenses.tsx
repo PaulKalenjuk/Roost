@@ -10,7 +10,7 @@ import {
   type UtilityBill,
   type UtilityType,
 } from '../api'
-import { Alert, Field } from '../components'
+import { Alert, CategoryPicker, Field } from '../components'
 import { useProperties } from '../store'
 
 const APPORTION_LABELS: Record<string, string> = {
@@ -66,8 +66,11 @@ function AdhocExpenses() {
     setItems(await fetchList<Expense>(`/api/expenses/?kind=adhoc&property=${selected.id}`))
   }
 
+  const loadCategories = async () => setCategories(await fetchList<Category>('/api/categories/'))
+
   useEffect(() => {
-    fetchList<Category>('/api/categories/').then(setCategories)
+    loadCategories()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   useEffect(() => {
     load()
@@ -114,14 +117,13 @@ function AdhocExpenses() {
         <h2>Add an ad hoc expense</h2>
         <div className="grid">
           <Field label="Category">
-            <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-              <option value="">— select —</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <CategoryPicker
+              value={form.category}
+              onChange={(id) => setForm({ ...form, category: id === '' ? '' : String(id) })}
+              categories={categories}
+              onChanged={loadCategories}
+              defaultKind="operating"
+            />
           </Field>
           <Field label="Date">
             <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
@@ -268,7 +270,6 @@ function Utilities() {
     supplier: '',
     apportionment: 'area',
   })
-  const [newCat, setNewCat] = useState({ name: '', kind: 'utility', default_apportionment: 'area' })
   const [bill, setBill] = useState({
     bill_date: new Date().toISOString().slice(0, 10),
     period_start: '',
@@ -292,8 +293,11 @@ function Utilities() {
     setBills(await fetchList<UtilityBill>(`/api/utility-bills/?utility_type=${id}`))
   }
 
+  const loadCategories = async () => setCategories(await fetchList<Category>('/api/categories/'))
+
   useEffect(() => {
-    fetchList<Category>('/api/categories/').then(setCategories)
+    loadCategories()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   useEffect(() => {
     loadTypes()
@@ -302,13 +306,6 @@ function Utilities() {
   useEffect(() => {
     loadBills(typeId)
   }, [typeId])
-
-  const addCategory = async () => {
-    if (!newCat.name.trim()) return
-    await api('/api/categories/', { method: 'POST', body: JSON.stringify(newCat) })
-    setCategories(await fetchList('/api/categories/'))
-    setNewCat({ ...newCat, name: '' })
-  }
 
   const addType = async () => {
     if (!selected || !newType.name.trim() || !newType.category) {
@@ -437,14 +434,14 @@ function Utilities() {
           </div>
           <div>
             <label>Category</label>
-            <select value={newType.category} onChange={(e) => setNewType({ ...newType, category: e.target.value })}>
-              <option value="">— select —</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <CategoryPicker
+              value={newType.category}
+              onChange={(id) => setNewType({ ...newType, category: id === '' ? '' : String(id) })}
+              categories={categories}
+              onChanged={loadCategories}
+              defaultKind="utility"
+              preferKinds={['utility']}
+            />
           </div>
           <div>
             <label>Frequency</label>
@@ -472,28 +469,10 @@ function Utilities() {
           </button>
         </div>
 
-        <details style={{ marginTop: 12 }}>
-          <summary className="muted">Need a category? Add one</summary>
-          <div className="row" style={{ marginTop: 8 }}>
-            <div>
-              <label>Name</label>
-              <input value={newCat.name} onChange={(e) => setNewCat({ ...newCat, name: e.target.value })} />
-            </div>
-            <div>
-              <label>Kind</label>
-              <select value={newCat.kind} onChange={(e) => setNewCat({ ...newCat, kind: e.target.value })}>
-                <option value="utility">Utility</option>
-                <option value="operating">Operating</option>
-                <option value="capital_works">Capital works</option>
-                <option value="mortgage">Interest / mortgage</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-            <button type="button" className="ghost small" onClick={addCategory}>
-              + Add category
-            </button>
-          </div>
-        </details>
+        <p className="hint" style={{ marginTop: 8 }}>
+          Tip: pick <strong>“+ Add new category…”</strong> in the Category dropdown to create one
+          without leaving this page.
+        </p>
       </div>
 
       <form className="panel" onSubmit={addBill}>
