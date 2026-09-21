@@ -94,23 +94,68 @@ Runs as an **isolated group** on the homeserver: rootless Podman with Quadlet
 units, its own network (`roost.network`) and volumes, port **8686**. See
 `deploy/README.md`.
 
+## Front-end (TypeScript SPA)
+
+`frontend/` is a **Vite + React + TypeScript** app with five sections:
+
+| Section | What it does |
+| --- | --- |
+| **Property setup** | dwelling, floor areas / let %, GST flag, depreciation-method default (ATO link), owners + shares, listings |
+| **Income** | import the Airbnb earnings **PDF** (monthly totals, overwrites), view monthly earnings + reservations |
+| **Expenses** | two tabs — **Ad hoc** (with receipt upload) and **Utilities** |
+| **Depreciating assets** | asset register + built schedules, receipt upload, rebuild schedules |
+| **Reporting** | per-FY report with the maths shown, optional per-owner split |
+
+Utilities: create a **utility type** (name, category, frequency — monthly/quarterly/
+half-yearly/yearly), then upload each **bill**. The claimable portion is
+calculated automatically from the let share.
+
+### Reading bills with DeepSeek (optional)
+
+Set `DEEPSEEK_KEY` in the environment and each bill can be parsed: the PDF text
+is extracted with `pdfplumber`, then DeepSeek returns the amount, GST, dates and
+supplier as validated JSON. Scanned/photographed bills have no text layer — the
+UI reports that and you enter the amount manually. Without a key, the feature is
+simply unavailable and everything else works.
+
+## API
+
+Session-authenticated (the same login as `/admin/`) with DRF:
+
+```
+/api/auth/{csrf,login,logout,me}/
+/api/properties/ /api/owners/ /api/ownerships/ /api/listings/ /api/categories/
+/api/expenses/?kind=adhoc|utility  /api/utility-types/ /api/utility-bills/
+/api/assets/ (+ /recompute/)  /api/reservations/ /api/monthly-earnings/
+/api/receipts/ /api/imports/
+/api/income/import-pdf/        # multipart: file + listing
+/api/utilities/extract/        # multipart: file -> parsed bill fields (DeepSeek)
+/api/reports/fy/?property=&fy=&owners=1&recompute=1
+```
+
 ## Layout
 
 ```
 roost/
   docker-compose.yml          # dev/local
   deploy/                     # Quadlet units + notes for the homeserver
+  frontend/                   # Vite + React + TS SPA (builds into backend/spa)
   backend/
     config/                   # settings, urls, wsgi/asgi
+    spa/                      # built SPA (generated; served by WhiteNoise)
     ledger/
       models.py               # Property, Listing, Owner, PropertyOwnership,
                               # Reservation, MonthlyEarnings, Category, Expense,
-                              # Receipt, Asset, DepreciationEntry, ImportBatch
+                              # Receipt, Asset, DepreciationEntry, UtilityType,
+                              # UtilityBill, ImportBatch
+      serializers.py          # DRF serializers
+      api.py / api_urls.py    # REST API
       reports.py              # per-FY + per-owner reporting
       apportionment.py        # let-share / deductibility maths
       depreciation.py         # prime-cost & diminishing-value schedules
       fiscal.py               # AU financial-year helpers
       constants.py            # ATO links
+      services/bill_extract.py# PDF text + DeepSeek -> validated bill fields
       importers/
         airbnb_pdf.py         # earnings-report PDF → monthly totals
         airbnb_csv.py         # transaction CSV → reservations
