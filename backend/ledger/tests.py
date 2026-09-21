@@ -434,6 +434,26 @@ class ReceiptUploadTests(BaseLedgerTestCase):
         response = self.client.get("/media/" + receipt.file.name)
         self.assertEqual(response.status_code, 200)
 
+    def test_upload_receipt_against_an_asset(self):
+        asset = Asset.objects.create(
+            property=self.prop,
+            name="Reverse-cycle aircon",
+            purchase_date=dt.date(2025, 8, 1),
+            cost=Decimal("2000.00"),
+            effective_life_years=Decimal("10.00"),
+        )
+        upload = SimpleUploadedFile(
+            "aircon.pdf", b"%PDF-1.4 fake", content_type="application/pdf"
+        )
+        response = self.client.post(
+            "/api/receipts/",
+            {"property": self.prop.id, "asset": asset.id, "file": upload,
+             "original_name": "aircon.pdf"},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(asset.receipts.count(), 1)
+        self.assertEqual(asset.receipts.first().original_name, "aircon.pdf")
+
 
 class UtilityCoverageTests(BaseLedgerTestCase):
     """Coverage windows: what is billed, and where the gaps are."""

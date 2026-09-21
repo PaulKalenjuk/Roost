@@ -241,6 +241,7 @@ function ReceiptCell({ expense, onUploaded }: { expense: Expense; onUploaded: ()
       <input
         ref={inputRef}
         type="file"
+        accept="application/pdf,image/*"
         style={{ display: 'none' }}
         onChange={(e) => {
           const f = e.target.files?.[0]

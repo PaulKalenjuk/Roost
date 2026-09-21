@@ -18,6 +18,7 @@ export default function Assets() {
     business_use_pct: '',
     low_value_pool: false,
   })
+  const assetFileRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
     if (!selected) return
@@ -63,7 +64,19 @@ export default function Assets() {
         }),
       })
       await api(`/api/assets/${created.id}/recompute/`, { method: 'POST' })
-      setNotice('Asset added and depreciation schedule built.')
+      const file = assetFileRef.current?.files?.[0]
+      if (file) {
+        const body = new FormData()
+        body.append('file', file)
+        body.append('property', String(selected.id))
+        body.append('asset', String(created.id))
+        body.append('original_name', file.name)
+        await api('/api/receipts/', { method: 'POST', body })
+        if (assetFileRef.current) assetFileRef.current.value = ''
+        setNotice('Asset added with its receipt attached, and the depreciation schedule built.')
+      } else {
+        setNotice('Asset added and depreciation schedule built.')
+      }
       setForm({ ...form, name: '', cost: '', effective_life_years: '' })
       await load()
     } catch (err) {
@@ -84,7 +97,8 @@ export default function Assets() {
       <p className="sub">
         Register plant &amp; equipment and building works. Depreciation is calculated
         per financial year (prime cost or diminishing value), pro-rated for days held
-        and scaled by business use.
+        and scaled by business use. Attach the purchase receipt (PDF or image) when you
+        add an asset, or later from the assets table.
       </p>
 
       {!selected ? <Alert kind="info">Create a property first.</Alert> : null}
@@ -127,6 +141,12 @@ export default function Assets() {
               <option value="false">No</option>
               <option value="true">Yes</option>
             </select>
+          </Field>
+          <Field
+            label="Receipt (PDF or image)"
+            hint="Optional. You can add more from the assets table later."
+          >
+            <input type="file" accept="application/pdf,image/*" ref={assetFileRef} />
           </Field>
         </div>
         <div style={{ height: 12 }} />
@@ -180,7 +200,7 @@ export default function Assets() {
             {items.length === 0 ? (
               <tr>
                 <td colSpan={7} className="muted">
-                  No assets yet.
+                  No assets yet — add one above (attach its purchase receipt if you have it).
                 </td>
               </tr>
             ) : null}
@@ -224,6 +244,7 @@ function AssetReceiptCell({ asset, onUploaded }: { asset: Asset; onUploaded: () 
       <input
         ref={inputRef}
         type="file"
+        accept="application/pdf,image/*"
         style={{ display: 'none' }}
         onChange={(e) => {
           const f = e.target.files?.[0]
