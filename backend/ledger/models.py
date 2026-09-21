@@ -804,6 +804,14 @@ class UtilityBill(TimestampedModel):
             self.expense = expense
             super().save(update_fields=["expense"])
 
+    def delete(self, *args, **kwargs):
+        """Remove the bill *and* its linked ledger expense (no orphans)."""
+        expense = self.expense
+        result = super().delete(*args, **kwargs)
+        if expense is not None:
+            expense.delete()
+        return result
+
     def __str__(self):
         when = self.bill_date or self.period_end
         return f"{self.utility_type.name} · {when} · {self.amount}"

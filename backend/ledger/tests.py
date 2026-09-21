@@ -6,6 +6,7 @@ Run with::
 """
 from decimal import Decimal
 import datetime as dt
+import json
 import tempfile
 from pathlib import Path
 from unittest import mock
@@ -509,3 +510,80 @@ class UtilityCoverageTests(BaseLedgerTestCase):
         payload = response.json()
         self.assertEqual(len(payload["coverage"]), 1)
         self.assertEqual(payload["coverage"][0]["name"], "Electricity")
+
+
+class UtilityBillEditTests(BaseLedgerTestCase):
+    """Bills can be edited and deleted; the ledger expense follows along."""
+
+    def setUp(self):
+        super().setUp()
+        cat = Category.objects.create(name="Electricity", kind=Category.KIND_UTILITY)
+        self.ut = UtilityType.objects.create(
+            property=self.prop, name="Electricity", category=cat,
+            frequency=UtilityType.FREQ_QUARTERLY,
+        )
+        user = User.objects.create_user("editor", "e@example.com", "unused-pw")
+        self.client.force_login(user)
+
+    def _bill(self, **overrides):
+        defaults = dict(
+            utility_type=self.ut,
+            bill_date=dt.date(2025, 8, 1),
+            period_start=dt.date(2025, 7, 1),
+            period_end=dt.date(2025, 9, 30),
+            amount=Decimal("300.00"),
+        )
+        defaults.update(overrides)
+        return UtilityBill.objects.create(**defaults)
+
+    def test_patch_updates_amount_and_expense(self):
+        bill = self._bill()
+        response = self.client.patch(
+            f"/api/utility-bills/{bill.id}/",
+            json.dumps({"amount": "450.00"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        bill.refresh_from_db()
+        bill.expense.refresh_from_db()
+        self.assertEqual(bill.amount, Decimal("450.00"))
+        self.assertEqual(bill.expense.amount, Decimal("450.00"))
+        # 25% let share of the 200/50 m2 property
+        self.assertEqual(bill.expense.deductible_amount, Decimal("112.50"))
+
+    def test_patch_can_clear_period_dates(self):
+        bill = self._bill()
+        response = self.client.patch(
+            f"/api/utility-bills/{bill.id}/",
+            json.dumps({"period_start": None, "period_end": None}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        bill.refresh_from_db()
+        self.assertIsNone(bill.period_start)
+        self.assertIsNone(bill.period_end)
+
+    def test_multipart_blank_dates_become_none(self):
+        """The browser PATCHes multipart/form-data with "" for cleared dates."""
+        from django.http import QueryDict
+
+        from .serializers import UtilityBillSerializer
+
+        bill = self._bill()
+        data = QueryDict(mutable=True)
+        data.update({"period_start": "", "period_end": "", "amount": "123.45"})
+        serializer = UtilityBillSerializer(bill, data=data, partial=True)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer.save()
+        bill.refresh_from_db()
+        self.assertIsNone(bill.period_start)
+        self.assertEqual(bill.amount, Decimal("123.45"))
+
+    def test_delete_removes_bill_and_expense(self):
+        bill = self._bill()
+        expense_id = bill.expense_id
+        response = self.client.delete(f"/api/utility-bills/{bill.id}/")
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(UtilityBill.objects.filter(pk=bill.pk).exists())
+        self.assertFalse(Expense.objects.filter(pk=expense_id).exists())
+        self.assertEqual(Expense.objects.filter(kind=Expense.KIND_UTILITY).count(), 0)

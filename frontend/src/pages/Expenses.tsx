@@ -276,6 +276,7 @@ function Utilities() {
   const billFormRef = useRef<HTMLFormElement>(null)
   const [coverage, setCoverage] = useState<Coverage[]>([])
   const [covStart, setCovStart] = useState('')
+  const [editingBillId, setEditingBillId] = useState<number | null>(null)
 
   const [newType, setNewType] = useState({
     name: '',
@@ -378,7 +379,41 @@ function Utilities() {
     }
   }
 
-  const addBill = async (e: React.FormEvent) => {
+  const resetBillForm = () => {
+    setEditingBillId(null)
+    setBill({
+      bill_date: new Date().toISOString().slice(0, 10),
+      period_start: '',
+      period_end: '',
+      amount: '',
+      gst_amount: '',
+      paid: true,
+    })
+    billFile.current = null
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const startEdit = (b: UtilityBill) => {
+    setEditingBillId(b.id)
+    setTypeId(b.utility_type)
+    setBill({
+      bill_date: b.bill_date ?? '',
+      period_start: b.period_start ?? '',
+      period_end: b.period_end ?? '',
+      amount: b.amount ?? '',
+      gst_amount: b.gst_amount ?? '',
+      paid: b.paid,
+    })
+    billFile.current = null
+    if (fileRef.current) fileRef.current.value = ''
+    setError('')
+    setNotice(
+      `Editing the ${b.utility_type_name} bill${b.bill_date ? ` from ${b.bill_date}` : ''}.`,
+    )
+    billFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  const saveBill = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!typeId) {
       setError('Add/select a utility type first.')
@@ -389,24 +424,45 @@ function Utilities() {
     const body = new FormData()
     body.append('utility_type', String(typeId))
     body.append('bill_date', bill.bill_date)
-    if (bill.period_start) body.append('period_start', bill.period_start)
-    if (bill.period_end) body.append('period_end', bill.period_end)
+    body.append('period_start', bill.period_start)
+    body.append('period_end', bill.period_end)
     body.append('amount', bill.amount || '0')
     body.append('gst_amount', bill.gst_amount || '0')
     body.append('paid', String(bill.paid))
     if (billFile.current) body.append('attachment', billFile.current)
     try {
-      await api('/api/utility-bills/', { method: 'POST', body })
-      setNotice('Bill added — claimable amount calculated from the let share.')
-      setBill({ ...bill, amount: '', gst_amount: '', period_start: '', period_end: '' })
-      billFile.current = null
-      if (fileRef.current) fileRef.current.value = ''
+      if (editingBillId) {
+        await api(`/api/utility-bills/${editingBillId}/`, { method: 'PATCH', body })
+        setNotice('Bill updated — the claimable amount was recalculated.')
+      } else {
+        await api('/api/utility-bills/', { method: 'POST', body })
+        setNotice('Bill added — claimable amount calculated from the let share.')
+      }
+      resetBillForm()
       await loadBills(typeId)
       await loadCoverage()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
     }
   }
+
+  const deleteBill = async (b: UtilityBill) => {
+    const when = b.bill_date ? ` (${b.bill_date})` : ''
+    if (!window.confirm(`Delete the ${b.utility_type_name} bill of ${money(b.amount)}${when}?`)) {
+      return
+    }
+    try {
+      await api(`/api/utility-bills/${b.id}/`, { method: 'DELETE' })
+      if (editingBillId === b.id) resetBillForm()
+      await loadBills(typeId)
+      await loadCoverage()
+      setNotice('Bill deleted.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed')
+    }
+  }
+
+  const editingBill = bills.find((b) => b.id === editingBillId)
 
   const prefillGap = (start: string, end: string) => {
     setBill((prev) => ({ ...prev, period_start: start, period_end: end, bill_date: end }))
@@ -632,8 +688,22 @@ function Utilities() {
         </div>
       ) : null}
 
-      <form className="panel" onSubmit={addBill} ref={billFormRef}>
-        <h2>Add a bill</h2>
+      <form className="panel" onSubmit={saveBill} ref={billFormRef}>
+        <h2>{editingBillId ? 'Edit bill' : 'Add a bill'}</h2>
+        {editingBillId ? (
+          <div className="hint" style={{ marginBottom: 10 }}>
+            Editing an existing bill.
+            {editingBill?.attachment_url ? (
+              <>
+                {' '}Current file:{' '}
+                <a href={editingBill.attachment_url} target="_blank" rel="noreferrer">
+                  open
+                </a>{' '}
+                — choose a new file above to replace it.
+              </>
+            ) : null}
+          </div>
+        ) : null}
         <div className="row">
           <div>
             <label>Utility type</label>
@@ -679,7 +749,14 @@ function Utilities() {
           </Field>
         </div>
         <div style={{ height: 12 }} />
-        <button disabled={!typeId}>Save bill</button>
+        <div className="row">
+          <button disabled={!typeId}>{editingBillId ? 'Save changes' : 'Save bill'}</button>
+          {editingBillId ? (
+            <button type="button" className="ghost" onClick={resetBillForm}>
+              Cancel
+            </button>
+          ) : null}
+        </div>
       </form>
 
       <div className="panel">
@@ -692,11 +769,12 @@ function Utilities() {
               <th className="num">Amount</th>
               <th className="num">Claimable</th>
               <th>Bill</th>
+              <th />
             </tr>
           </thead>
           <tbody>
             {bills.map((b) => (
-              <tr key={b.id}>
+              <tr key={b.id} className={b.id === editingBillId ? 'selected-row' : ''}>
                 <td>{b.bill_date ?? '—'}</td>
                 <td>
                   {b.period_start ?? '?'} → {b.period_end ?? '?'}
@@ -712,11 +790,21 @@ function Utilities() {
                     '—'
                   )}
                 </td>
+                <td>
+                  <div className="row">
+                    <button type="button" className="ghost small" onClick={() => startEdit(b)}>
+                      Edit
+                    </button>
+                    <button type="button" className="ghost small" onClick={() => deleteBill(b)}>
+                      Delete
+                    </button>
+                  </div>
+                </td>
               </tr>
             ))}
             {bills.length === 0 ? (
               <tr>
-                <td colSpan={5} className="muted">
+                <td colSpan={6} className="muted">
                   No bills yet.
                 </td>
               </tr>
@@ -728,6 +816,7 @@ function Utilities() {
                 <td colSpan={2}>Total</td>
                 <td className="num">{money(amountTotal)}</td>
                 <td className="num">{money(claimTotal)}</td>
+                <td />
                 <td />
               </tr>
             </tfoot>

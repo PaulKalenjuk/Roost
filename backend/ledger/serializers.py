@@ -1,5 +1,4 @@
 """REST serializers for the Roost API."""
-from django.http import QueryDict
 from rest_framework import serializers
 
 
@@ -7,13 +6,12 @@ class BaseSerializer(serializers.ModelSerializer):
     """Tolerate cleared form fields by treating ``""`` as ``null``.
 
     DRF rejects an empty string for nullable Decimal/Date fields (a browser form
-    sends ``""`` when a field is left blank), which is a footgun that bites
-    every client.  Normalise it here for JSON bodies (multipart is left alone so
-    uploads keep working).
+    sends ``""`` when a field is left blank, including on multipart PATCH when you
+    clear a date), which is a footgun that bites every client.  Normalise it here.
     """
 
     def to_internal_value(self, data):
-        if isinstance(data, dict) and not isinstance(data, QueryDict):
+        if hasattr(data, "items"):
             data = {
                 key: (
                     None
