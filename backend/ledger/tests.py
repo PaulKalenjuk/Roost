@@ -21,6 +21,7 @@ from .importers import airbnb_csv, airbnb_pdf
 from .models import (
     Asset,
     Category,
+    DepreciationEntry,
     Expense,
     Listing,
     MonthlyEarnings,
@@ -587,3 +588,26 @@ class UtilityBillEditTests(BaseLedgerTestCase):
         self.assertFalse(UtilityBill.objects.filter(pk=bill.pk).exists())
         self.assertFalse(Expense.objects.filter(pk=expense_id).exists())
         self.assertEqual(Expense.objects.filter(kind=Expense.KIND_UTILITY).count(), 0)
+
+    def test_editing_utility_type_reapportions_existing_bills(self):
+        bill = self._bill(amount=Decimal("400.00"))
+        # 25% let share => 100.00
+        self.assertEqual(bill.expense.deductible_amount, Decimal("100.00"))
+
+        self.ut.apportionment = Category.APPORTION_NONE
+        self.ut.save()
+
+        bill.expense.refresh_from_db()
+        self.assertEqual(bill.expense.apportionment, Category.APPORTION_NONE)
+        self.assertEqual(bill.expense.deductible_amount, Decimal("400.00"))
+
+    def test_deleting_utility_type_removes_bills_and_expenses(self):
+        bill = self._bill()
+        expense_id = bill.expense_id
+        response = self.client.delete(f"/api/utility-types/{self.ut.id}/")
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(UtilityBill.objects.filter(pk=bill.pk).exists())
+        self.assertFalse(
+            Expense.objects.filter(pk=expense_id).exists(),
+            "cascade left an orphaned expense",
+        )

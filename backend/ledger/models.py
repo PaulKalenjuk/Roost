@@ -15,6 +15,8 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import Sum
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
 
 from decimal import InvalidOperation
@@ -745,6 +747,18 @@ class UtilityType(TimestampedModel):
             )
         ]
 
+    def save(self, *args, **kwargs):
+        """On edit, push the type's settings down onto its existing bills.
+
+        Changing the category or apportionment should re-flow into the linked
+        ledger expenses (each bill re-saves and re-syncs its expense).
+        """
+        created = self._state.adding
+        super().save(*args, **kwargs)
+        if not created:
+            for bill in self.bills.all():
+                bill.save()
+
     def __str__(self):
         return f"{self.name} ({self.get_frequency_display()})"
 
@@ -815,3 +829,12 @@ class UtilityBill(TimestampedModel):
     def __str__(self):
         when = self.bill_date or self.period_end
         return f"{self.utility_type.name} · {when} · {self.amount}"
+
+
+@receiver(post_delete, sender=UtilityBill)
+def _delete_expense_with_bill(sender, instance, **kwargs):
+    """Deleting a bill must take its ledger expense with it — including when the
+    delete comes from a cascade (utility type, property, admin bulk delete),
+    which bypasses ``UtilityBill.delete()``."""
+    if instance.expense_id:
+        Expense.objects.filter(pk=instance.expense_id).delete()

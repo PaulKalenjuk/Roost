@@ -285,6 +285,7 @@ function Utilities() {
     supplier: '',
     apportionment: 'area',
   })
+  const [editingTypeId, setEditingTypeId] = useState<number | null>(null)
   const [bill, setBill] = useState({
     bill_date: new Date().toISOString().slice(0, 10),
     period_start: '',
@@ -298,7 +299,10 @@ function Utilities() {
     if (!selected) return
     const list = await fetchList<UtilityType>(`/api/utility-types/?property=${selected.id}`)
     setTypes(list)
-    setTypeId(list[0]?.id ?? null)
+    // keep the focused type if it still exists, else fall back to the first
+    setTypeId((prev) =>
+      prev && list.some((t) => t.id === prev) ? prev : (list[0]?.id ?? null),
+    )
   }
   const loadBills = async (id: number | null) => {
     if (!id) {
@@ -332,19 +336,68 @@ function Utilities() {
     loadBills(typeId)
   }, [typeId])
 
-  const addType = async () => {
+  const resetTypeForm = () => {
+    setEditingTypeId(null)
+    setNewType({ name: '', category: '', frequency: 'quarterly', supplier: '', apportionment: 'area' })
+  }
+
+  const startEditType = (t: UtilityType) => {
+    setEditingTypeId(t.id)
+    setTypeId(t.id)
+    setNewType({
+      name: t.name,
+      category: String(t.category),
+      frequency: t.frequency,
+      supplier: t.supplier ?? '',
+      apportionment: t.apportionment,
+    })
+    setError('')
+    setNotice(`Editing utility type “${t.name}”.`)
+  }
+
+  const saveType = async () => {
     if (!selected || !newType.name.trim() || !newType.category) {
       setError('Utility type needs a name and a category.')
       return
     }
     setError('')
-    await api('/api/utility-types/', {
-      method: 'POST',
-      body: JSON.stringify({ ...newType, property: selected.id, category: Number(newType.category) }),
-    })
-    setNewType({ ...newType, name: '', supplier: '' })
-    await loadTypes()
-    await loadCoverage()
+    const payload = {
+      ...newType,
+      property: selected.id,
+      category: Number(newType.category),
+    }
+    try {
+      if (editingTypeId) {
+        await api(`/api/utility-types/${editingTypeId}/`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        })
+        setNotice('Utility type updated — existing bills were re-apportioned.')
+      } else {
+        await api('/api/utility-types/', { method: 'POST', body: JSON.stringify(payload) })
+        setNotice('Utility type added.')
+      }
+      resetTypeForm()
+      await loadTypes()
+      await loadCoverage()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    }
+  }
+
+  const deleteType = async (t: UtilityType) => {
+    const billCount = covFor(t.id)?.bills ?? 0
+    const extra = billCount ? ` and its ${billCount} bill(s)` : ''
+    if (!window.confirm(`Delete the “${t.name}” utility type${extra}?`)) return
+    try {
+      await api(`/api/utility-types/${t.id}/`, { method: 'DELETE' })
+      if (editingTypeId === t.id) resetTypeForm()
+      await loadTypes()
+      await loadCoverage()
+      setNotice('Utility type deleted.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed')
+    }
   }
 
   const readWithAI = async () => {
@@ -513,6 +566,7 @@ function Utilities() {
               <th>Supplier</th>
               <th>Apportionment</th>
               <th>Coverage</th>
+              <th />
             </tr>
           </thead>
           <tbody>
@@ -531,17 +585,34 @@ function Utilities() {
                 <td>
                   <CoverageCell cov={covFor(t.id)} />
                 </td>
+                <td>
+                  <div className="row">
+                    <button type="button" className="ghost small" onClick={() => startEditType(t)}>
+                      Edit
+                    </button>
+                    <button type="button" className="ghost small" onClick={() => deleteType(t)}>
+                      Delete
+                    </button>
+                  </div>
+                </td>
               </tr>
             ))}
             {types.length === 0 ? (
               <tr>
-                <td colSpan={6} className="muted">
+                <td colSpan={7} className="muted">
                   No utility types yet.
                 </td>
               </tr>
             ) : null}
           </tbody>
         </table>
+
+        {editingTypeId ? (
+          <div className="hint" style={{ marginTop: 12 }}>
+            Editing utility type — change what you need, then <strong>Save changes</strong>. Existing
+            bills are re-apportioned automatically.
+          </div>
+        ) : null}
 
         <div className="row" style={{ marginTop: 12 }}>
           <div>
@@ -580,9 +651,14 @@ function Utilities() {
               <option value="none">Fully deductible</option>
             </select>
           </div>
-          <button type="button" className="ghost small" onClick={addType}>
-            + Add utility type
+          <button type="button" className="ghost small" onClick={saveType}>
+            {editingTypeId ? 'Save changes' : '+ Add utility type'}
           </button>
+          {editingTypeId ? (
+            <button type="button" className="ghost small" onClick={resetTypeForm}>
+              Cancel
+            </button>
+          ) : null}
         </div>
 
         <p className="hint" style={{ marginTop: 8 }}>
