@@ -274,6 +274,7 @@ function Utilities() {
   const billFile = useRef<File | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const billFormRef = useRef<HTMLFormElement>(null)
+  const [reading, setReading] = useState(false)
   const [coverage, setCoverage] = useState<Coverage[]>([])
   const [covStart, setCovStart] = useState('')
   const [editingBillId, setEditingBillId] = useState<number | null>(null)
@@ -409,6 +410,7 @@ function Utilities() {
     setError('')
     setNotice('')
     billFile.current = file
+    setReading(true)
     const body = new FormData()
     body.append('file', file)
     try {
@@ -429,6 +431,8 @@ function Utilities() {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Extraction failed'
       setError(`${message} — you can still enter the amount manually.`)
+    } finally {
+      setReading(false)
     }
   }
 
@@ -796,10 +800,30 @@ function Utilities() {
             <label>Bill PDF / image</label>
             <input type="file" accept="application/pdf,image/*" ref={fileRef} />
           </div>
-          <button type="button" className="ghost" onClick={readWithAI}>
-            ✨ Read bill with AI
+          <button
+            type="button"
+            className="ghost btn-busy"
+            onClick={readWithAI}
+            disabled={reading}
+          >
+            {reading ? (
+              <>
+                <span className="spinner" />
+                Reading with AI…
+              </>
+            ) : (
+              '✨ Read bill with AI'
+            )}
           </button>
         </div>
+
+        {reading ? (
+          <Alert kind="info">
+            <span className="spinner" />
+            Sending the bill to DeepSeek — this usually takes a few seconds. Fields will
+            fill in automatically.
+          </Alert>
+        ) : null}
 
         <div className="grid" style={{ marginTop: 12 }}>
           <Field label="Bill date">

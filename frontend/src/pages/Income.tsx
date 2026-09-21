@@ -21,6 +21,7 @@ export default function Income() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [batch, setBatch] = useState<ImportBatch | null>(null)
+  const [importing, setImporting] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const load = async (id: number) => {
@@ -64,6 +65,7 @@ export default function Income() {
     setError('')
     setNotice('')
     setBatch(null)
+    setImporting(true)
     const body = new FormData()
     body.append('file', file)
     body.append('listing', String(listingId))
@@ -77,6 +79,8 @@ export default function Income() {
       await load(listingId)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed')
+    } finally {
+      setImporting(false)
     }
   }
 
@@ -119,13 +123,26 @@ export default function Income() {
                 <label>Airbnb earnings PDF</label>
                 <input type="file" accept="application/pdf" ref={fileRef} />
               </div>
-              <button onClick={importPdf} disabled={!listingId}>
-                Import PDF
+              <button className="btn-busy" onClick={importPdf} disabled={!listingId || importing}>
+                {importing ? (
+                  <>
+                    <span className="spinner" />
+                    Importing…
+                  </>
+                ) : (
+                  'Import PDF'
+                )}
               </button>
             </div>
             <div className="hint">
               Airbnb → Payments &amp; payouts → Earnings → Download report.
             </div>
+            {importing ? (
+              <Alert kind="info">
+                <span className="spinner" />
+                Reading the earnings report and updating months — one moment…
+              </Alert>
+            ) : null}
             {notice ? <Alert kind="ok">{notice}</Alert> : null}
             {error ? <Alert kind="err">{error}</Alert> : null}
             {batch ? (

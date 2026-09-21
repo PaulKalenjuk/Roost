@@ -100,6 +100,16 @@ tfoot td { font-weight: 700; }
 .login { max-width: 360px; margin: 12vh auto; }
 .owner-row { display: grid; grid-template-columns: 2fr 1fr auto; gap: 8px; align-items: end; margin-bottom: 8px; }
 
+/* Spinner for in-flight requests */
+.spinner {
+  display: inline-block; width: 13px; height: 13px;
+  border: 2px solid currentColor; border-right-color: transparent;
+  border-radius: 50%; animation: roost-spin .7s linear infinite;
+  vertical-align: -2px; margin-right: 6px;
+}
+.btn-busy { display: inline-flex; align-items: center; }
+@keyframes roost-spin { to { transform: rotate(360deg); } }
+
 /* Coverage timeline */
 .covbar { display: flex; height: 20px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: #fff; }
 .covseg { height: 100%; }
