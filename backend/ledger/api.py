@@ -20,6 +20,7 @@ from .importers import airbnb_pdf
 from .models import (
     Asset,
     Category,
+    EarningsSummary,
     Expense,
     ImportBatch,
     Listing,
@@ -35,6 +36,7 @@ from .models import (
 from .serializers import (
     AssetSerializer,
     CategorySerializer,
+    EarningsSummarySerializer,
     ExpenseSerializer,
     ImportBatchSerializer,
     ListingSerializer,
@@ -206,6 +208,22 @@ class MonthlyEarningsViewSet(viewsets.ModelViewSet):
         qs = MonthlyEarnings.objects.select_related("listing")
         listing = self.request.query_params.get("listing")
         return qs.filter(listing_id=listing) if listing else qs
+
+
+class EarningsSummaryViewSet(viewsets.ModelViewSet):
+    """Period totals (nights booked, averages). Editable so nights can be fixed."""
+
+    serializer_class = EarningsSummarySerializer
+
+    def get_queryset(self):
+        qs = EarningsSummary.objects.select_related("listing")
+        listing = self.request.query_params.get("listing")
+        fy = self.request.query_params.get("fy")
+        if listing:
+            qs = qs.filter(listing_id=listing)
+        if fy:
+            qs = qs.filter(financial_year=fy)
+        return qs
 
 
 class ReceiptViewSet(viewsets.ModelViewSet):

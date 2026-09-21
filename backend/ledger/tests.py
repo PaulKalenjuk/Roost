@@ -23,6 +23,7 @@ from .models import (
     Asset,
     Category,
     DepreciationEntry,
+    EarningsSummary,
     Expense,
     Listing,
     MonthlyEarnings,
@@ -196,6 +197,42 @@ class AirbnbPdfImportTests(BaseLedgerTestCase):
         self.assertEqual(parsed["months"][0]["gross_earnings"], Decimal("50.00"))
         self.assertEqual(parsed["months"][0]["total_earnings"], Decimal("48.50"))
         self.assertEqual(parsed["summary"]["nights_booked"], 10)
+
+    def test_import_creates_period_summary_with_nights(self):
+        airbnb_pdf.import_report(SAMPLE_REPORT_TEXT, self.listing)
+        summary = EarningsSummary.objects.get()
+        self.assertEqual(summary.financial_year, "FY2025-26")
+        self.assertEqual(summary.nights_booked, 10)
+        self.assertEqual(summary.avg_night_stay, Decimal("4.10"))
+        self.assertEqual(summary.gross_earnings, Decimal("100.00"))
+        self.assertEqual(summary.total_earnings, Decimal("97.00"))
+
+    def test_reimport_overwrites_the_period_summary(self):
+        airbnb_pdf.import_report(SAMPLE_REPORT_TEXT, self.listing)
+        updated = SAMPLE_REPORT_TEXT.replace("Nights booked\n10", "Nights booked\n14")
+        airbnb_pdf.import_report(updated, self.listing)
+        self.assertEqual(EarningsSummary.objects.count(), 1)  # not duplicated
+        self.assertEqual(EarningsSummary.objects.get().nights_booked, 14)
+
+    def test_api_lists_and_edits_nights(self):
+        airbnb_pdf.import_report(SAMPLE_REPORT_TEXT, self.listing)
+        summary = EarningsSummary.objects.get()
+        user = User.objects.create_user("nights", "n@example.com", "unused-pw")
+        client = APIClient()
+        client.force_login(user)
+
+        listed = client.get(f"/api/earnings-summaries/?listing={self.listing.id}")
+        self.assertEqual(listed.status_code, 200, listed.content)
+        self.assertEqual(len(listed.json()["results"]), 1)
+        self.assertEqual(listed.json()["results"][0]["financial_year"], "FY2025-26")
+
+        patched = client.patch(
+            f"/api/earnings-summaries/{summary.id}/",
+            {"nights_booked": 149},
+            format="json",
+        )
+        self.assertEqual(patched.status_code, 200, patched.content)
+        self.assertEqual(EarningsSummary.objects.get().nights_booked, 149)
 
     def test_import_creates_monthly_totals(self):
         batch = airbnb_pdf.import_report(SAMPLE_REPORT_TEXT, self.listing)

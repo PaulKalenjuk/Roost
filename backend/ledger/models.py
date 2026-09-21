@@ -399,6 +399,48 @@ class MonthlyEarnings(TimestampedModel):
         return f"{self.month:%b %Y} · {self.total_earnings}"
 
 
+class EarningsSummary(TimestampedModel):
+    """Period-level earnings for a listing (usually one financial year).
+
+    Holds the headline figures the earnings report gives for the whole period —
+    notably **nights booked** and the average night stay, which the report does
+    not break down by month.  Upserted on import, keyed by the report period so
+    different periods never clobber each other.
+    """
+
+    listing = models.ForeignKey(
+        Listing, on_delete=models.CASCADE, related_name="earnings_summaries"
+    )
+    #: Denormalised for easy filtering, derived from the period (AU FY).
+    financial_year = models.CharField(max_length=12, blank=True)
+    period_start = models.DateField(null=True, blank=True)
+    period_end = models.DateField(null=True, blank=True)
+
+    nights_booked = models.PositiveIntegerField(null=True, blank=True)
+    avg_night_stay = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True
+    )
+    gross_earnings = models.DecimalField(max_digits=12, decimal_places=2, default=ZERO)
+    service_fees = models.DecimalField(max_digits=12, decimal_places=2, default=ZERO)
+    total_earnings = models.DecimalField(max_digits=12, decimal_places=2, default=ZERO)
+
+    source = models.CharField(max_length=30, default="airbnb_pdf")
+    source_file = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["-period_end", "-period_start"]
+        verbose_name_plural = "earnings summaries"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["listing", "period_start", "period_end"],
+                name="uniq_earnings_summary_period",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.financial_year or 'period'} · {self.nights_booked or 0} nights"
+
+
 # ---------------------------------------------------------------------------
 # Expenses & receipts
 # ---------------------------------------------------------------------------

@@ -22,7 +22,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
 
-from ..models import ImportBatch, Listing, MonthlyEarnings
+from ..models import EarningsSummary, ImportBatch, Listing, MonthlyEarnings
 
 MONEY = r"\$?(-?[\d,]+\.\d{2})"
 MONTHS = {
@@ -213,4 +213,50 @@ def import_report(source, listing, filename=""):
     batch.log = "\n".join(log_lines)
     batch.finished_at = dt.datetime.now(dt.timezone.utc)
     batch.save()
+
+    _upsert_period_summary(listing, parsed, filename=batch.filename)
     return batch
+
+
+def _to_decimal(value):
+    if value in (None, ""):
+        return None
+    try:
+        return Decimal(str(value).replace(",", "").strip())
+    except InvalidOperation:
+        return None
+
+
+def _upsert_period_summary(listing, parsed, filename=""):
+    """Store the period totals — nights booked, averages, gross/net — for the FY.
+
+    The earnings report gives these for the whole period only (not per month), so
+    they live on their own row.  Re-importing the same period overwrites it.
+    """
+    from .. import fiscal
+
+    period_start = parsed["period_start"]
+    period_end = parsed["period_end"]
+    if not (period_start or period_end):
+        return None
+
+    gross = sum((m["gross_earnings"] for m in parsed["months"]), Decimal("0.00"))
+    net = sum((m["total_earnings"] for m in parsed["months"]), Decimal("0.00"))
+    summary = parsed.get("summary", {})
+
+    obj, _created = EarningsSummary.objects.update_or_create(
+        listing=listing,
+        period_start=period_start,
+        period_end=period_end,
+        defaults={
+            "financial_year": fiscal.fy_label(period_start or period_end),
+            "nights_booked": summary.get("nights_booked"),
+            "avg_night_stay": _to_decimal(summary.get("avg_night_stay")),
+            "gross_earnings": gross,
+            "service_fees": (gross - net),
+            "total_earnings": net,
+            "source": "airbnb_pdf",
+            "source_file": filename,
+        },
+    )
+    return obj

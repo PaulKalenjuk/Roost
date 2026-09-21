@@ -265,6 +265,22 @@ export interface Reservation {
   source: string
 }
 
+export interface EarningsSummary {
+  id: number
+  listing: number
+  listing_name: string
+  financial_year: string
+  period_start: string | null
+  period_end: string | null
+  nights_booked: number | null
+  avg_night_stay: string | null
+  gross_earnings: string
+  service_fees: string
+  total_earnings: string
+  source: string
+  source_file: string
+}
+
 export interface ImportBatch {
   id: number
   source: string

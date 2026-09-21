@@ -3,6 +3,7 @@ import {
   api,
   fetchList,
   money,
+  type EarningsSummary,
   type ImportBatch,
   type Listing,
   type MonthlyEarnings,
@@ -17,6 +18,8 @@ export default function Income() {
   const [listingId, setListingId] = useState<number | null>(null)
   const [earnings, setEarnings] = useState<MonthlyEarnings[]>([])
   const [reservations, setReservations] = useState<Reservation[]>([])
+  const [summaries, setSummaries] = useState<EarningsSummary[]>([])
+  const [nightsDraft, setNightsDraft] = useState<Record<number, string>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -27,12 +30,14 @@ export default function Income() {
   const load = async (id: number) => {
     setLoading(true)
     try {
-      const [e, r] = await Promise.all([
+      const [e, r, s] = await Promise.all([
         fetchList<MonthlyEarnings>(`/api/monthly-earnings/?listing=${id}`),
         fetchList<Reservation>(`/api/reservations/?listing=${id}`),
+        fetchList<EarningsSummary>(`/api/earnings-summaries/?listing=${id}`),
       ])
       setEarnings(e)
       setReservations(r)
+      setSummaries(s)
     } finally {
       setLoading(false)
     }
@@ -44,6 +49,7 @@ export default function Income() {
       setListingId(null)
       setEarnings([])
       setReservations([])
+      setSummaries([])
       return
     }
     fetchList<Listing>(`/api/listings/?property=${selected.id}`).then((ls) => {
@@ -84,9 +90,38 @@ export default function Income() {
     }
   }
 
+  const saveNights = async (id: number) => {
+    const draft = nightsDraft[id]
+    if (draft === undefined) return
+    try {
+      await api(`/api/earnings-summaries/${id}/`, {
+        method: 'PATCH',
+        body: JSON.stringify({ nights_booked: draft === '' ? null : Number(draft) }),
+      })
+      setNightsDraft((d) => {
+        const copy = { ...d }
+        delete copy[id]
+        return copy
+      })
+      setNotice('Nights booked updated.')
+      if (listingId) await load(listingId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    }
+  }
+
   const grossTotal = earnings.reduce((s, e) => s + Number(e.gross_earnings), 0)
   const netTotal = earnings.reduce((s, e) => s + Number(e.total_earnings), 0)
   const feeTotal = earnings.reduce((s, e) => s + Number(e.service_fees), 0)
+
+  // Group the period summaries by financial year for the nights table.
+  const byFy = new Map<string, EarningsSummary[]>()
+  for (const summary of summaries) {
+    const key = summary.financial_year || '—'
+    const existing = byFy.get(key)
+    if (existing) existing.push(summary)
+    else byFy.set(key, [summary])
+  }
 
   return (
     <>
@@ -192,6 +227,87 @@ export default function Income() {
                     <td className="num">{money(netTotal)}</td>
                   </tr>
                 </tfoot>
+              ) : null}
+            </table>
+          </div>
+
+          <div className="panel">
+            <h2>Nights booked per financial year</h2>
+            <p className="sub">
+              Read from the earnings report when you import it. Edit and save if a figure needs
+              correcting.
+            </p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Financial year</th>
+                  <th>Period</th>
+                  <th className="num">Nights booked</th>
+                  <th className="num">Avg night stay</th>
+                  <th className="num">Gross</th>
+                  <th className="num">Net</th>
+                </tr>
+              </thead>
+              {[...byFy.entries()].map(([fy, group]) => {
+                const totalNights = group.reduce((n, s) => n + (s.nights_booked ?? 0), 0)
+                const gross = group.reduce((n, s) => n + Number(s.gross_earnings), 0)
+                const net = group.reduce((n, s) => n + Number(s.total_earnings), 0)
+                return (
+                  <tbody key={fy}>
+                    <tr className="selected-row">
+                      <td>
+                        <strong>{fy}</strong>
+                      </td>
+                      <td className="muted">total</td>
+                      <td className="num">
+                        <strong>{totalNights}</strong>
+                      </td>
+                      <td className="num">—</td>
+                      <td className="num">{money(gross)}</td>
+                      <td className="num">{money(net)}</td>
+                    </tr>
+                    {group.map((s) => (
+                      <tr key={s.id}>
+                        <td className="muted">
+                          {s.period_start ?? '?'} → {s.period_end ?? '?'}
+                        </td>
+                        <td />
+                        <td className="num">
+                          <input
+                            type="number"
+                            min="0"
+                            style={{ width: 90, display: 'inline-block' }}
+                            value={nightsDraft[s.id] ?? s.nights_booked ?? ''}
+                            onChange={(e) =>
+                              setNightsDraft({ ...nightsDraft, [s.id]: e.target.value })
+                            }
+                          />
+                          {nightsDraft[s.id] !== undefined ? (
+                            <button
+                              type="button"
+                              className="ghost small"
+                              onClick={() => saveNights(s.id)}
+                            >
+                              Save
+                            </button>
+                          ) : null}
+                        </td>
+                        <td className="num">{s.avg_night_stay ?? '—'}</td>
+                        <td className="num">{money(s.gross_earnings)}</td>
+                        <td className="num">{money(s.total_earnings)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                )
+              })}
+              {summaries.length === 0 ? (
+                <tbody>
+                  <tr>
+                    <td colSpan={6} className="muted">
+                      Nothing yet — import an earnings report above to record nights booked.
+                    </td>
+                  </tr>
+                </tbody>
               ) : null}
             </table>
           </div>

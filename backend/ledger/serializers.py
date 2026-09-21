@@ -1,6 +1,8 @@
 """REST serializers for the Roost API."""
 from rest_framework import serializers
 
+from . import fiscal
+
 
 class BaseSerializer(serializers.ModelSerializer):
     """Tolerate cleared form fields by treating ``""`` as ``null``.
@@ -28,6 +30,7 @@ from .models import (
     Asset,
     Category,
     DepreciationEntry,
+    EarningsSummary,
     Expense,
     ImportBatch,
     Listing,
@@ -209,6 +212,26 @@ class AssetSerializer(BaseSerializer):
         if obj.image and request:
             return request.build_absolute_uri(obj.image.url)
         return obj.image.url if obj.image else None
+
+
+class EarningsSummarySerializer(BaseSerializer):
+    listing_name = serializers.CharField(source="listing.name", read_only=True)
+
+    class Meta:
+        model = EarningsSummary
+        fields = [
+            "id", "listing", "listing_name", "financial_year", "period_start",
+            "period_end", "nights_booked", "avg_night_stay", "gross_earnings",
+            "service_fees", "total_earnings", "source", "source_file",
+        ]
+
+    def validate(self, attrs):
+        # Keep the denormalised FY in step if the period is edited.
+        start = attrs.get("period_start", getattr(self.instance, "period_start", None))
+        end = attrs.get("period_end", getattr(self.instance, "period_end", None))
+        if start or end:
+            attrs["financial_year"] = fiscal.fy_label(end or start)
+        return attrs
 
 
 class ImportBatchSerializer(serializers.ModelSerializer):
