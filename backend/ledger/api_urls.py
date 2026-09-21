@@ -32,5 +32,6 @@ urlpatterns = [
     path("utilities/coverage/", api.utilities_coverage, name="api-utilities-coverage"),
     path("reports/fy/", api.fy_report, name="api-fy-report"),
     path("reports/fy/pdf/", api.fy_report_pdf, name="api-fy-report-pdf"),
+    path("reports/fy/receipts/", api.fy_receipts_zip, name="api-fy-receipts-zip"),
     path("", include(router.urls)),
 ]

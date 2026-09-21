@@ -16,7 +16,7 @@ from rest_framework.response import Response
 
 from . import coverage as coverage_lib
 from . import depreciation as depreciation_lib
-from . import fiscal, pdf, reports
+from . import fiscal, pdf, receipts_zip, reports
 from .importers import airbnb_pdf
 from .models import (
     Asset,
@@ -350,6 +350,35 @@ def fy_report(request):
     if include_owners:
         payload["owners"] = owners
     return Response(payload)
+
+
+@api_view(["GET"])
+def fy_receipts_zip(request):
+    """ZIP of the receipt files behind the year's calculations, by category."""
+    prop = get_object_or_404(Property, pk=request.query_params.get("property"))
+    label = request.query_params.get("fy") or fiscal.fy_label(dt.date.today())
+    include_owners = request.query_params.get("owners") in ("1", "true", "yes")
+    show_working = request.query_params.get("working") in ("1", "true", "yes")
+
+    report, owners = reports.owner_reports(prop, label)
+    payload = receipts_zip.build_receipts_zip(
+        prop,
+        label,
+        report=report,
+        owners=owners if include_owners else [],
+        show_working=show_working,
+    )
+    if payload is None:
+        return Response(
+            {"detail": f"No receipt files found for {label}."}, status=status.HTTP_404_NOT_FOUND
+        )
+
+    safe_name = "".join(c if c.isalnum() or c in "-_." else "-" for c in prop.name)
+    response = HttpResponse(payload, content_type="application/zip")
+    response["Content-Disposition"] = (
+        f'attachment; filename="roost-{safe_name}-{label}-receipts.zip"'
+    )
+    return response
 
 
 @api_view(["GET"])

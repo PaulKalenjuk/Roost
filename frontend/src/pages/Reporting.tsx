@@ -94,6 +94,15 @@ export default function Reporting() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id])
 
+  const exportReceipts = () => {
+    if (!selected) return
+    const params = new URLSearchParams({ property: String(selected.id) })
+    if (fy) params.set('fy', fy)
+    if (includeOwners) params.set('owners', '1')
+    if (working) params.set('working', '1')
+    window.open(`/api/reports/fy/receipts/?${params.toString()}`, '_blank')
+  }
+
   const report = data?.report
 
   const exportPdf = () => {
@@ -151,6 +160,9 @@ export default function Reporting() {
           </button>
           <button className="ghost" onClick={exportPdf} disabled={!selected}>
             Export PDF
+          </button>
+          <button className="ghost" onClick={exportReceipts} disabled={!selected}>
+            Export receipts (ZIP)
           </button>
         </div>
       </div>

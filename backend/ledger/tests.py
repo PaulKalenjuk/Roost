@@ -6,9 +6,11 @@ Run with::
 """
 from decimal import Decimal
 import datetime as dt
+import io
 import json
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -927,6 +929,121 @@ class ReportPdfTests(BaseLedgerTestCase):
         self.assertEqual(response["Content-Type"], "application/pdf")
         self.assertTrue(response.content.startswith(b"%PDF"))
         self.assertIn("attachment", response["Content-Disposition"])
+
+
+class ReceiptsZipTests(BaseLedgerTestCase):
+    """The receipt bundle: grouped by category, with a manifest."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.mkdtemp()
+        override = override_settings(MEDIA_ROOT=self.tmp)
+        override.enable()
+        self.addCleanup(override.disable)
+        user = User.objects.create_user("zipuser", "z@example.com", "unused-pw")
+        self.api = APIClient()
+        self.api.force_login(user)
+
+    def _everything(self):
+        cleaning = Category.objects.create(name="Cleaning", kind=Category.KIND_OPERATING)
+        expense = Expense.objects.create(
+            property=self.prop, category=cleaning, date="2026-03-01",
+            amount=Decimal("50.00"), description="Supplies",
+        )
+        Receipt.objects.create(
+            property=self.prop, expense=expense, original_name="clean.pdf",
+            file=SimpleUploadedFile("clean.pdf", b"pdf-bytes"),
+        )
+
+        electricity = Category.objects.create(name="Electricity", kind=Category.KIND_UTILITY)
+        utility = UtilityType.objects.create(
+            property=self.prop, name="Electricity", category=electricity
+        )
+        UtilityBill.objects.create(
+            utility_type=utility, bill_date=dt.date(2026, 1, 15),
+            period_start=dt.date(2026, 1, 1), period_end=dt.date(2026, 3, 31),
+            amount=Decimal("300.00"),
+            attachment=SimpleUploadedFile("agl.pdf", b"bill-bytes"),
+        )
+
+        asset = Asset.objects.create(
+            property=self.prop, name="Aircon", purchase_date=dt.date(2025, 8, 1),
+            cost=Decimal("2000.00"), effective_life_years=Decimal("10.00"),
+        )
+        depreciation.recompute_schedule(asset)
+        Receipt.objects.create(
+            property=self.prop, asset=asset, original_name="aircon.pdf",
+            file=SimpleUploadedFile("aircon.pdf", b"asset-bytes"),
+        )
+
+    def test_zip_groups_receipts_by_category_and_includes_a_manifest(self):
+        self._everything()
+        response = self.api.get(
+            f"/api/reports/fy/receipts/?property={self.prop.id}&fy=FY2025-26"
+        )
+        self.assertEqual(response.status_code, 200, response.content[:300])
+        self.assertEqual(response["Content-Type"], "application/zip")
+        self.assertIn("attachment", response["Content-Disposition"])
+
+        archive = zipfile.ZipFile(io.BytesIO(response.content))
+        names = archive.namelist()
+        self.assertIn("Cleaning/clean.pdf", names)
+        self.assertIn("Electricity/agl.pdf", names)
+        self.assertIn("Depreciating assets/aircon.pdf", names)
+        self.assertIn("manifest.csv", names)
+        self.assertEqual(archive.read("Cleaning/clean.pdf"), b"pdf-bytes")
+
+        manifest = archive.read("manifest.csv").decode()
+        self.assertIn("Cleaning/clean.pdf", manifest)
+        self.assertIn("Supplies", manifest)
+        self.assertIn("Electricity/agl.pdf", manifest)
+        self.assertIn("depreciating asset", manifest)
+
+    def test_receipts_outside_the_year_are_excluded(self):
+        other = Category.objects.create(name="Insurance", kind=Category.KIND_OPERATING)
+        expense = Expense.objects.create(
+            property=self.prop, category=other, date="2027-03-01", amount=Decimal("10.00")
+        )
+        Receipt.objects.create(
+            property=self.prop, expense=expense, original_name="later.pdf",
+            file=SimpleUploadedFile("later.pdf", b"x"),
+        )
+        response = self.api.get(
+            f"/api/reports/fy/receipts/?property={self.prop.id}&fy=FY2025-26"
+        )
+        # Only FY2025-26 has nothing, the receipt is dated FY2026-27.
+        self.assertEqual(response.status_code, 404)
+
+    def test_404_when_nothing_to_bundle(self):
+        response = self.api.get(
+            f"/api/reports/fy/receipts/?property={self.prop.id}&fy=FY2025-26"
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_missing_file_is_noted_instead_of_breaking_the_export(self):
+        """A receipt row whose file has vanished must not 500 the whole ZIP."""
+        cat = Category.objects.create(name="Supplies", kind=Category.KIND_OPERATING)
+        expense = Expense.objects.create(
+            property=self.prop, category=cat, date="2026-03-01", amount=Decimal("25.00")
+        )
+        receipt = Receipt.objects.create(
+            property=self.prop, expense=expense, original_name="gone.pdf",
+            file=SimpleUploadedFile("gone.pdf", b"bye"),
+        )
+        Path(self.tmp).joinpath(receipt.file.name).unlink()  # simulate loss
+
+        response = self.api.get(
+            f"/api/reports/fy/receipts/?property={self.prop.id}&fy=FY2025-26"
+        )
+        self.assertEqual(response.status_code, 200, response.content[:300])
+        archive = zipfile.ZipFile(io.BytesIO(response.content))
+        self.assertNotIn("Supplies/gone.pdf", archive.namelist())
+        manifest = archive.read("manifest.csv").decode()
+        self.assertIn("file missing", manifest)
+
+    def test_requires_login(self):
+        response = self.client.get(f"/api/reports/fy/receipts/?property={self.prop.id}")
+        self.assertIn(response.status_code, (401, 403))
 
 
 class UtilityCoverageTests(BaseLedgerTestCase):
