@@ -23,12 +23,13 @@ const APPORTION_LABELS: Record<string, string> = {
 }
 
 export default function Expenses() {
-  const [tab, setTab] = useState<'adhoc' | 'utilities'>('adhoc')
+  const [tab, setTab] = useState<'adhoc' | 'utilities' | 'categories'>('adhoc')
   return (
     <>
       <h1>Expenses</h1>
       <p className="sub">
-        Ad hoc costs (with receipts) and recurring utilities (bills, auto-apportioned).
+        Ad hoc costs (with receipts), recurring utilities (bills, auto-apportioned), and the
+        category list behind them.
       </p>
       <div className="tabs">
         <button className={`tab ${tab === 'adhoc' ? 'active' : ''}`} onClick={() => setTab('adhoc')}>
@@ -37,8 +38,271 @@ export default function Expenses() {
         <button className={`tab ${tab === 'utilities' ? 'active' : ''}`} onClick={() => setTab('utilities')}>
           Utilities
         </button>
+        <button className={`tab ${tab === 'categories' ? 'active' : ''}`} onClick={() => setTab('categories')}>
+          Categories
+        </button>
       </div>
-      {tab === 'adhoc' ? <AdhocExpenses /> : <Utilities />}
+      {tab === 'adhoc' ? <AdhocExpenses /> : null}
+      {tab === 'utilities' ? <Utilities /> : null}
+      {tab === 'categories' ? <Categories /> : null}
+    </>
+  )
+}
+
+const CATEGORY_KIND_OPTIONS = [
+  { value: 'operating', label: 'Operating expense' },
+  { value: 'utility', label: 'Utility' },
+  { value: 'capital_works', label: 'Capital works' },
+  { value: 'mortgage', label: 'Interest / mortgage' },
+  { value: 'other', label: 'Other' },
+]
+
+interface CategoryDraft {
+  name: string
+  kind: string
+  default_apportionment: string
+}
+
+function Categories() {
+  const [items, setItems] = useState<Category[]>([])
+  const [drafts, setDrafts] = useState<Record<number, CategoryDraft>>({})
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [newCat, setNewCat] = useState<CategoryDraft>({
+    name: '',
+    kind: 'operating',
+    default_apportionment: 'none',
+  })
+
+  const load = async () => setItems(await fetchList<Category>('/api/categories/'))
+  useEffect(() => {
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const startEdit = (category: Category) =>
+    setDrafts({
+      ...drafts,
+      [category.id]: {
+        name: category.name,
+        kind: category.kind,
+        default_apportionment: category.default_apportionment,
+      },
+    })
+
+  const cancelEdit = (id: number) => {
+    const copy = { ...drafts }
+    delete copy[id]
+    setDrafts(copy)
+  }
+
+  const saveEdit = async (id: number) => {
+    setError('')
+    setNotice('')
+    try {
+      await api(`/api/categories/${id}/`, {
+        method: 'PATCH',
+        body: JSON.stringify(drafts[id]),
+      })
+      cancelEdit(id)
+      setNotice('Category updated — existing records keep using it.')
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    }
+  }
+
+  const remove = async (category: Category) => {
+    if (!window.confirm(`Delete the “${category.name}” category?`)) return
+    setError('')
+    setNotice('')
+    try {
+      await api(`/api/categories/${category.id}/`, { method: 'DELETE' })
+      setNotice('Category deleted.')
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed')
+    }
+  }
+
+  const create = async () => {
+    if (!newCat.name.trim()) {
+      setError('Give the category a name.')
+      return
+    }
+    setError('')
+    setNotice('')
+    try {
+      await api('/api/categories/', { method: 'POST', body: JSON.stringify(newCat) })
+      setNewCat({ name: '', kind: 'operating', default_apportionment: 'none' })
+      setCreating(false)
+      setNotice('Category added.')
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    }
+  }
+
+  return (
+    <>
+      {notice ? <Alert kind="ok">{notice}</Alert> : null}
+      {error ? <Alert kind="err">{error}</Alert> : null}
+
+      <div className="panel">
+        <h2>Categories</h2>
+        <p className="sub">
+          Rename, re-type or delete categories here. Renaming is safe — existing expenses and
+          utility types keep pointing at the same category, it just changes the label used in
+          reports and exports.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Kind</th>
+              <th>Default apportionment</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((category) => {
+              const draft = drafts[category.id]
+              return draft ? (
+                <tr key={category.id} className="selected-row">
+                  <td>
+                    <input
+                      value={draft.name}
+                      onChange={(e) =>
+                        setDrafts({ ...drafts, [category.id]: { ...draft, name: e.target.value } })
+                      }
+                    />
+                  </td>
+                  <td>
+                    <select
+                      value={draft.kind}
+                      onChange={(e) =>
+                        setDrafts({ ...drafts, [category.id]: { ...draft, kind: e.target.value } })
+                      }
+                    >
+                      {CATEGORY_KIND_OPTIONS.map((k) => (
+                        <option key={k.value} value={k.value}>
+                          {k.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <select
+                      value={draft.default_apportionment}
+                      onChange={(e) =>
+                        setDrafts({
+                          ...drafts,
+                          [category.id]: { ...draft, default_apportionment: e.target.value },
+                        })
+                      }
+                    >
+                      <option value="none">Fully deductible</option>
+                      <option value="area">By floor area of the let</option>
+                      <option value="area_nights">By floor area × nights booked</option>
+                      <option value="custom">Custom %</option>
+                    </select>
+                  </td>
+                  <td>
+                    <div className="row">
+                      <button type="button" className="small" onClick={() => saveEdit(category.id)}>
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost small"
+                        onClick={() => cancelEdit(category.id)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={category.id}>
+                  <td>{category.name}</td>
+                  <td>{CATEGORY_KIND_OPTIONS.find((k) => k.value === category.kind)?.label ?? category.kind}</td>
+                  <td>
+                    {APPORTION_LABELS[category.default_apportionment] ??
+                      category.default_apportionment}
+                  </td>
+                  <td>
+                    <div className="row">
+                      <button
+                        type="button"
+                        className="ghost small"
+                        onClick={() => startEdit(category)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost small"
+                        onClick={() => remove(category)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+            {items.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="muted">
+                  No categories yet.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+
+        {creating ? (
+          <div className="row" style={{ marginTop: 12 }}>
+            <div>
+              <label>Name</label>
+              <input value={newCat.name} onChange={(e) => setNewCat({ ...newCat, name: e.target.value })} />
+            </div>
+            <div>
+              <label>Kind</label>
+              <select value={newCat.kind} onChange={(e) => setNewCat({ ...newCat, kind: e.target.value })}>
+                {CATEGORY_KIND_OPTIONS.map((k) => (
+                  <option key={k.value} value={k.value}>
+                    {k.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label>Default apportionment</label>
+              <select
+                value={newCat.default_apportionment}
+                onChange={(e) => setNewCat({ ...newCat, default_apportionment: e.target.value })}
+              >
+                <option value="none">Fully deductible</option>
+                <option value="area">By floor area of the let</option>
+                <option value="area_nights">By floor area × nights booked</option>
+                <option value="custom">Custom %</option>
+              </select>
+            </div>
+            <button type="button" className="small" onClick={create}>
+              Add category
+            </button>
+            <button type="button" className="ghost small" onClick={() => setCreating(false)}>
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button type="button" className="ghost small" style={{ marginTop: 12 }} onClick={() => setCreating(true)}>
+            + New category
+          </button>
+        )}
+      </div>
     </>
   )
 }
@@ -660,7 +924,10 @@ function Utilities() {
     body.append('amount', bill.amount || '0')
     body.append('gst_amount', bill.gst_amount || '0')
     body.append('paid', String(bill.paid))
-    if (billFile.current) body.append('attachment', billFile.current)
+    // Use whatever is in the file input right now — the attachment must not
+    // depend on having pressed "Read bill with AI" first.
+    const attachment = fileRef.current?.files?.[0] ?? billFile.current
+    if (attachment) body.append('attachment', attachment)
     try {
       if (editingBillId) {
         await api(`/api/utility-bills/${editingBillId}/`, { method: 'PATCH', body })

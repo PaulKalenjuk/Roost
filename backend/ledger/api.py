@@ -6,6 +6,7 @@ which suits a same-origin single-page app served by this Django project.
 import datetime as dt
 
 from django.contrib.auth import authenticate, login, logout
+from django.db.models import ProtectedError
 from django.http import HttpResponse
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
@@ -128,6 +129,20 @@ class PropertyOwnershipViewSet(viewsets.ModelViewSet):
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
+
+    def destroy(self, request, *args, **kwargs):
+        """Categories are PROTECTed by expenses/utility types — say so nicely."""
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            return Response(
+                {
+                    "detail": "This category is in use by expenses or utility types, "
+                              "so it can't be deleted. Rename it instead, or move those "
+                              "records to another category first."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
 
 class ExpenseViewSet(viewsets.ModelViewSet):

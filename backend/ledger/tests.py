@@ -1046,6 +1046,51 @@ class ReceiptsZipTests(BaseLedgerTestCase):
         self.assertIn(response.status_code, (401, 403))
 
 
+class CategoryApiTests(BaseLedgerTestCase):
+    """Categories can be renamed; in-use ones refuse deletion with a clear message."""
+
+    def setUp(self):
+        super().setUp()
+        user = User.objects.create_user("catuser", "c@example.com", "unused-pw")
+        self.api = APIClient()
+        self.api.force_login(user)
+
+    def test_rename_category(self):
+        category = Category.objects.create(name="Electrcity", kind=Category.KIND_UTILITY)
+        response = self.api.patch(
+            f"/api/categories/{category.id}/", {"name": "Electricity"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(Category.objects.get().name, "Electricity")
+
+    def test_rename_keeps_existing_expenses_attached(self):
+        category = Category.objects.create(name="Mortgage", kind=Category.KIND_MORTGAGE)
+        expense = Expense.objects.create(
+            property=self.prop, category=category, amount=Decimal("10.00")
+        )
+        response = self.api.patch(
+            f"/api/categories/{category.id}/", {"name": "Loan interest"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        expense.refresh_from_db()
+        self.assertEqual(expense.category_id, category.id)
+        self.assertEqual(expense.category.name, "Loan interest")
+
+    def test_in_use_category_cannot_be_deleted(self):
+        category = Category.objects.create(name="Mortgage", kind=Category.KIND_MORTGAGE)
+        Expense.objects.create(property=self.prop, category=category, amount=Decimal("10.00"))
+        response = self.api.delete(f"/api/categories/{category.id}/")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("in use", response.json()["detail"])
+        self.assertTrue(Category.objects.filter(pk=category.pk).exists())
+
+    def test_unused_category_can_be_deleted(self):
+        category = Category.objects.create(name="Unused")
+        response = self.api.delete(f"/api/categories/{category.id}/")
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Category.objects.filter(pk=category.pk).exists())
+
+
 class UtilityCoverageTests(BaseLedgerTestCase):
     """Coverage windows: what is billed, and where the gaps are."""
 
