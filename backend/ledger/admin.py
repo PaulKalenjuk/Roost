@@ -16,6 +16,8 @@ from .models import (
     PropertyOwnership,
     Receipt,
     Reservation,
+    UtilityBill,
+    UtilityType,
 )
 
 
@@ -107,9 +109,9 @@ class ReservationAdmin(admin.ModelAdmin):
 
 @admin.register(Expense)
 class ExpenseAdmin(admin.ModelAdmin):
-    list_display = ("date", "property", "category", "description", "amount",
+    list_display = ("date", "property", "category", "kind", "description", "amount",
                     "apportionment", "deductible_amount", "source")
-    list_filter = ("category", "property", "apportionment", "paid", "source")
+    list_filter = ("category", "property", "kind", "apportionment", "paid", "source")
     search_fields = ("description", "vendor", "notes")
     date_hierarchy = "date"
     inlines = [ReceiptInline]
@@ -154,6 +156,21 @@ class ReceiptAdmin(admin.ModelAdmin):
         if obj.file:
             return format_html('<a href="{}">open</a>', obj.file.url)
         return "—"
+
+
+@admin.register(UtilityType)
+class UtilityTypeAdmin(admin.ModelAdmin):
+    list_display = ("name", "property", "frequency", "category", "supplier",
+                    "apportionment")
+    list_filter = ("property", "frequency", "category")
+
+
+@admin.register(UtilityBill)
+class UtilityBillAdmin(admin.ModelAdmin):
+    list_display = ("utility_type", "bill_date", "period_start", "period_end",
+                    "amount", "gst_amount", "paid", "claimable_amount")
+    list_filter = ("utility_type", "paid")
+    date_hierarchy = "bill_date"
 
 
 @admin.register(ImportBatch)

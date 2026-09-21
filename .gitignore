@@ -8,4 +8,8 @@ venv/
 db.sqlite3
 media/
 staticfiles/
+# built SPA (produced by `npm run build`) and JS deps
+backend/spa/
+frontend/node_modules/
+frontend/dist/
 *.log

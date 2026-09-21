@@ -1,0 +1,268 @@
+"""Roost REST API.
+
+Session-authenticated (the same login as the Django admin) and CSRF-protected,
+which suits a same-origin single-page app served by this Django project.
+"""
+import datetime as dt
+
+from django.contrib.auth import authenticate, login, logout
+from django.middleware.csrf import get_token
+from django.shortcuts import get_object_or_404
+from rest_framework import status, viewsets
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+
+from . import depreciation as depreciation_lib
+from . import fiscal, reports
+from .importers import airbnb_pdf
+from .models import (
+    Asset,
+    Category,
+    Expense,
+    ImportBatch,
+    Listing,
+    MonthlyEarnings,
+    Owner,
+    Property,
+    PropertyOwnership,
+    Receipt,
+    Reservation,
+    UtilityBill,
+    UtilityType,
+)
+from .serializers import (
+    AssetSerializer,
+    CategorySerializer,
+    ExpenseSerializer,
+    ImportBatchSerializer,
+    ListingSerializer,
+    MonthlyEarningsSerializer,
+    OwnerSerializer,
+    PropertyOwnershipSerializer,
+    PropertySerializer,
+    ReceiptSerializer,
+    ReservationSerializer,
+    UtilityBillSerializer,
+    UtilityTypeSerializer,
+)
+from .services import bill_extract
+
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def csrf(request):
+    """Return (and set) a CSRF token for the SPA to echo back."""
+    return Response({"csrfToken": get_token(request)})
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def login_view(request):
+    user = authenticate(
+        request,
+        username=request.data.get("username", ""),
+        password=request.data.get("password", ""),
+    )
+    if user is None:
+        return Response({"detail": "Invalid username or password."},
+                        status=status.HTTP_401_UNAUTHORIZED)
+    login(request, user)
+    return Response({"username": user.username, "csrfToken": get_token(request)})
+
+
+@api_view(["POST"])
+def logout_view(request):
+    logout(request)
+    return Response({"ok": True})
+
+
+@api_view(["GET"])
+def me(request):
+    return Response({
+        "authenticated": request.user.is_authenticated,
+        "username": request.user.get_username(),
+        "is_staff": request.user.is_staff,
+    })
+
+
+# ---------------------------------------------------------------------------
+# CRUD viewsets
+# ---------------------------------------------------------------------------
+class PropertyViewSet(viewsets.ModelViewSet):
+    queryset = Property.objects.all()
+    serializer_class = PropertySerializer
+
+
+class OwnerViewSet(viewsets.ModelViewSet):
+    queryset = Owner.objects.all()
+    serializer_class = OwnerSerializer
+
+
+class ListingViewSet(viewsets.ModelViewSet):
+    queryset = Listing.objects.select_related("property")
+    serializer_class = ListingSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        prop = self.request.query_params.get("property")
+        return qs.filter(property_id=prop) if prop else qs
+
+
+class PropertyOwnershipViewSet(viewsets.ModelViewSet):
+    serializer_class = PropertyOwnershipSerializer
+
+    def get_queryset(self):
+        qs = PropertyOwnership.objects.select_related("owner")
+        prop = self.request.query_params.get("property")
+        return qs.filter(property_id=prop) if prop else qs
+
+
+class CategoryViewSet(viewsets.ModelViewSet):
+    queryset = Category.objects.all()
+    serializer_class = CategorySerializer
+
+
+class ExpenseViewSet(viewsets.ModelViewSet):
+    serializer_class = ExpenseSerializer
+
+    def get_queryset(self):
+        qs = Expense.objects.select_related("category", "property")
+        kind = self.request.query_params.get("kind")
+        prop = self.request.query_params.get("property")
+        if kind:
+            qs = qs.filter(kind=kind)
+        if prop:
+            qs = qs.filter(property_id=prop)
+        return qs
+
+
+class UtilityTypeViewSet(viewsets.ModelViewSet):
+    serializer_class = UtilityTypeSerializer
+
+    def get_queryset(self):
+        qs = UtilityType.objects.select_related("category", "property")
+        prop = self.request.query_params.get("property")
+        return qs.filter(property_id=prop) if prop else qs
+
+
+class UtilityBillViewSet(viewsets.ModelViewSet):
+    serializer_class = UtilityBillSerializer
+
+    def get_queryset(self):
+        qs = UtilityBill.objects.select_related("utility_type", "expense")
+        ut = self.request.query_params.get("utility_type")
+        return qs.filter(utility_type_id=ut) if ut else qs
+
+
+class AssetViewSet(viewsets.ModelViewSet):
+    serializer_class = AssetSerializer
+
+    def get_queryset(self):
+        qs = Asset.objects.select_related("property")
+        prop = self.request.query_params.get("property")
+        return qs.filter(property_id=prop) if prop else qs
+
+    @action(detail=False, methods=["post"], url_path="recompute")
+    def recompute(self, request):
+        prop = request.data.get("property")
+        assets = Asset.objects.all()
+        if prop:
+            assets = assets.filter(property_id=prop)
+        count = 0
+        for asset in assets:
+            depreciation_lib.recompute_schedule(asset)
+            count += 1
+        return Response({"recomputed": count})
+
+    @action(detail=True, methods=["post"], url_path="recompute")
+    def recompute_one(self, request, pk=None):
+        asset = self.get_object()
+        entries = depreciation_lib.recompute_schedule(asset)
+        return Response({"entries": len(entries)})
+
+
+class ReservationViewSet(viewsets.ModelViewSet):
+    serializer_class = ReservationSerializer
+
+    def get_queryset(self):
+        qs = Reservation.objects.select_related("listing")
+        listing = self.request.query_params.get("listing")
+        return qs.filter(listing_id=listing) if listing else qs
+
+
+class MonthlyEarningsViewSet(viewsets.ModelViewSet):
+    serializer_class = MonthlyEarningsSerializer
+
+    def get_queryset(self):
+        qs = MonthlyEarnings.objects.select_related("listing")
+        listing = self.request.query_params.get("listing")
+        return qs.filter(listing_id=listing) if listing else qs
+
+
+class ReceiptViewSet(viewsets.ModelViewSet):
+    serializer_class = ReceiptSerializer
+    queryset = Receipt.objects.all()
+
+
+class ImportBatchViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = ImportBatchSerializer
+    queryset = ImportBatch.objects.all()
+
+
+# ---------------------------------------------------------------------------
+# Actions
+# ---------------------------------------------------------------------------
+@api_view(["POST"])
+def import_income_pdf(request):
+    """Import an Airbnb earnings-report PDF for a listing (uploads → monthly totals)."""
+    upload = request.FILES.get("file")
+    listing_id = request.data.get("listing")
+    if not upload:
+        return Response({"detail": "No file uploaded."}, status=400)
+    if not listing_id:
+        return Response({"detail": "listing is required."}, status=400)
+    listing = get_object_or_404(Listing, pk=listing_id)
+    batch = airbnb_pdf.import_report(upload, listing, filename=upload.name)
+    return Response(ImportBatchSerializer(batch).data, status=201)
+
+
+@api_view(["POST"])
+def extract_bill(request):
+    """Read an uploaded bill PDF with DeepSeek and return the parsed fields."""
+    upload = request.FILES.get("file")
+    if not upload:
+        return Response({"detail": "No file uploaded."}, status=400)
+    try:
+        data = bill_extract.extract_bill(upload, filename=upload.name)
+    except bill_extract.BillExtractionUnavailable as exc:
+        return Response(
+            {"detail": str(exc), "available": False},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    return Response(data)
+
+
+@api_view(["GET"])
+def fy_report(request):
+    """Per-financial-year report as JSON (optionally split by owner)."""
+    prop = get_object_or_404(Property, pk=request.query_params.get("property"))
+    label = request.query_params.get("fy") or fiscal.fy_label(dt.date.today())
+    recompute = request.query_params.get("recompute") in ("1", "true", "yes")
+    include_owners = request.query_params.get("owners") in ("1", "true", "yes")
+
+    report, owners = reports.owner_reports(prop, label, recompute)
+    payload = {"report": report, "fy_options": _fy_options()}
+    if include_owners:
+        payload["owners"] = owners
+    return Response(payload)
+
+
+def _fy_options():
+    """A few FY labels around today, newest first, for the UI dropdown."""
+    today = dt.date.today()
+    this_year = today.year if today.month >= 7 else today.year - 1
+    return [f"FY{y}-{str(y + 1)[2:]}" for y in range(this_year, this_year - 6, -1)]

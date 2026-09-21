@@ -5,8 +5,10 @@ Run with::
     DB_ENGINE=sqlite python manage.py test ledger
 """
 from decimal import Decimal
+from unittest import mock
 
-from django.test import TestCase
+from django.contrib.auth.models import User
+from django.test import TestCase, override_settings
 
 from . import depreciation, reports
 from .importers import airbnb_csv, airbnb_pdf
@@ -20,7 +22,10 @@ from .models import (
     Property,
     PropertyOwnership,
     Reservation,
+    UtilityBill,
+    UtilityType,
 )
+from .services import bill_extract
 
 SAMPLE_CSV = """Date,Type,Confirmation Code,Listing,Guest,Start Date,End Date,Nights,Gross Earnings,Cleaning Fee,Service Fee,Payout Date,Amount,Currency
 2026-01-05,Reservation,HMABC123,Seaside Shack,Jane Doe,2026-01-10,2026-01-14,4,900.00,120.00,135.00,2026-01-05,-885.00,AUD
@@ -237,3 +242,88 @@ class OwnerReportTests(BaseLedgerTestCase):
         self.prop.let_percentage = Decimal("0.5000")
         self.prop.save()
         self.assertEqual(self.prop.let_share, Decimal("0.5000"))
+
+
+class UtilityBillTests(BaseLedgerTestCase):
+    def setUp(self):
+        super().setUp()
+        self.cat = Category.objects.create(name="Electricity", kind=Category.KIND_UTILITY)
+        self.ut = UtilityType.objects.create(
+            property=self.prop, name="Electricity", category=self.cat,
+            frequency=UtilityType.FREQ_QUARTERLY,
+            apportionment=Category.APPORTION_AREA,
+        )
+
+    def test_bill_creates_linked_expense(self):
+        bill = UtilityBill.objects.create(
+            utility_type=self.ut, bill_date="2026-03-15", amount=Decimal("600.00")
+        )
+        bill.refresh_from_db()
+        self.assertIsNotNone(bill.expense_id)
+        self.assertEqual(bill.expense.kind, Expense.KIND_UTILITY)
+        self.assertEqual(bill.expense.apportionment, Category.APPORTION_AREA)
+        # 25% let share of the 200/50 m2 property => 150 claimable
+        self.assertEqual(bill.expense.deductible_amount, Decimal("150.00"))
+
+    def test_bill_update_keeps_one_expense(self):
+        bill = UtilityBill.objects.create(
+            utility_type=self.ut, bill_date="2026-03-15", amount=Decimal("600.00")
+        )
+        bill.amount = Decimal("800.00")
+        bill.save()
+        self.assertEqual(Expense.objects.filter(kind=Expense.KIND_UTILITY).count(), 1)
+        bill.refresh_from_db()
+        self.assertEqual(bill.expense.deductible_amount, Decimal("200.00"))
+
+
+class BillExtractionTests(TestCase):
+    def test_no_text_layer_reports_needs_ocr(self):
+        with mock.patch.object(bill_extract, "extract_pdf_text", return_value=""):
+            data = bill_extract.extract_bill(b"x", filename="scan.pdf")
+        self.assertTrue(data["needs_ocr"])
+
+    @override_settings(DEEPSEEK_KEY="***")
+    def test_extract_coerces_fields(self):
+        fake = {
+            "amount": "$1,234.56",
+            "gst_amount": "112.23",
+            "bill_date": "15/03/2026",
+            "period_start": "2026-01-01",
+            "period_end": "2026-03-31",
+            "supplier": "AGL",
+            "utility_hint": "Electricity",
+            "currency": "aud",
+        }
+        with mock.patch.object(bill_extract, "extract_pdf_text", return_value="bill text"), \
+             mock.patch.object(bill_extract, "_call_deepseek", return_value=fake):
+            data = bill_extract.extract_bill(b"x", filename="bill.pdf")
+        self.assertEqual(data["amount"], "1234.56")
+        self.assertEqual(data["bill_date"], "2026-03-15")
+        self.assertEqual(data["period_end"], "2026-03-31")
+        self.assertEqual(data["utility_hint"], "electricity")
+        self.assertEqual(data["currency"], "AUD")
+        self.assertEqual(data["extracted_by"], "deepseek:deepseek-flash")
+
+
+class ApiAuthTests(TestCase):
+    def test_endpoints_require_login(self):
+        response = self.client.get("/api/properties/")
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_login_then_list(self):
+        User.objects.create_user("tester", "t@example.com", "s3cret-pw")
+        response = self.client.post(
+            "/api/auth/login/",
+            {"username": "tester", "password": "s3cret-pw"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.get("/api/properties/").status_code, 200)
+
+    def test_bad_login_rejected(self):
+        response = self.client.post(
+            "/api/auth/login/",
+            {"username": "nobody", "password": "wrong"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 401)

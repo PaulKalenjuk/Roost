@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django.contrib.humanize",
+    "rest_framework",
     "ledger",
 ]
 
@@ -126,3 +127,25 @@ if not DEBUG:
 
 # Sensible base for admin links in emails/logs
 LOGIN_REDIRECT_URL = "/admin/"
+
+# --- DRF ------------------------------------------------------------------
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 100,
+}
+
+# --- DeepSeek (optional bill reading) ------------------------------------
+DEEPSEEK_KEY = env("DEEPSEEK_KEY", default="")
+DEEPSEEK_MODEL = env("DEEPSEEK_MODEL", default="deepseek-flash")
+DEEPSEEK_BASE_URL = env("DEEPSEEK_BASE_URL", default="https://api.deepseek.com")
+
+# --- Single-page app (built into backend/spa by Vite) --------------------
+SPA_ROOT = BASE_DIR / "spa"
+WHITENOISE_ROOT = SPA_ROOT
+WHITENOISE_INDEX_FILE = True

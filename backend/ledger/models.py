@@ -411,7 +411,15 @@ class Expense(TimestampedModel):
     SOURCE_CHOICES = [
         ("manual", "Manual entry"),
         ("airbnb_csv", "Airbnb CSV import"),
+        ("utility_bill", "Utility bill"),
         ("other", "Other import"),
+    ]
+
+    KIND_ADHOC = "adhoc"
+    KIND_UTILITY = "utility"
+    KIND_CHOICES = [
+        (KIND_ADHOC, "Ad hoc expense"),
+        (KIND_UTILITY, "Utility bill"),
     ]
 
     property = models.ForeignKey(
@@ -427,6 +435,12 @@ class Expense(TimestampedModel):
     )
     category = models.ForeignKey(
         Category, on_delete=models.PROTECT, related_name="expenses"
+    )
+    kind = models.CharField(
+        max_length=20,
+        choices=KIND_CHOICES,
+        default=KIND_ADHOC,
+        help_text="Ad hoc cost, or a utility bill (managed via a utility type).",
     )
 
     date = models.DateField(default=timezone.localdate)
@@ -675,3 +689,113 @@ class ImportBatch(TimestampedModel):
 
     def __str__(self):
         return f"{self.source} · {self.filename or '—'} · {self.created_at:%Y-%m-%d %H:%M}"
+
+
+# ---------------------------------------------------------------------------
+# Utilities
+# ---------------------------------------------------------------------------
+class UtilityType(TimestampedModel):
+    """A recurring utility for a property (electricity, water, internet…)."""
+
+    FREQ_MONTHLY = "monthly"
+    FREQ_QUARTERLY = "quarterly"
+    FREQ_HALF_YEARLY = "half_yearly"
+    FREQ_YEARLY = "yearly"
+    FREQ_OTHER = "other"
+    FREQUENCY_CHOICES = [
+        (FREQ_MONTHLY, "Monthly"),
+        (FREQ_QUARTERLY, "Quarterly"),
+        (FREQ_HALF_YEARLY, "Half-yearly"),
+        (FREQ_YEARLY, "Yearly"),
+        (FREQ_OTHER, "Other"),
+    ]
+
+    property = models.ForeignKey(
+        Property, on_delete=models.CASCADE, related_name="utility_types"
+    )
+    name = models.CharField(max_length=120, help_text="e.g. Electricity")
+    category = models.ForeignKey(
+        Category, on_delete=models.PROTECT, related_name="utility_types"
+    )
+    frequency = models.CharField(
+        max_length=20, choices=FREQUENCY_CHOICES, default=FREQ_QUARTERLY
+    )
+    supplier = models.CharField(max_length=200, blank=True)
+    apportionment = models.CharField(
+        max_length=10,
+        choices=Category.APPORTION_CHOICES,
+        default=Category.APPORTION_AREA,
+        help_text="How the claimable portion is worked out (usually by floor area).",
+    )
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["property__name", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["property", "name"], name="uniq_utility_type_per_property"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.get_frequency_display()})"
+
+
+class UtilityBill(TimestampedModel):
+    """One bill for a utility type. Saving it keeps a linked Expense in sync."""
+
+    utility_type = models.ForeignKey(
+        UtilityType, on_delete=models.CASCADE, related_name="bills"
+    )
+    bill_date = models.DateField(null=True, blank=True)
+    period_start = models.DateField(null=True, blank=True)
+    period_end = models.DateField(null=True, blank=True)
+
+    amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=ZERO,
+        help_text="Total bill amount (before apportionment).",
+    )
+    gst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=ZERO)
+    paid = models.BooleanField(default=True)
+
+    attachment = models.FileField(
+        upload_to="bills/%Y/%m/", blank=True, null=True,
+        help_text="The bill PDF/image.",
+    )
+    #: Raw AI extraction (amount, dates, supplier…) kept for audit.
+    extracted = models.JSONField(default=dict, blank=True)
+
+    notes = models.TextField(blank=True)
+    expense = models.OneToOneField(
+        Expense, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="utility_bill",
+    )
+
+    class Meta:
+        ordering = ["-bill_date", "-id"]
+
+    @property
+    def claimable_amount(self):
+        return self.expense.deductible_amount if self.expense_id else None
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        expense = self.expense or Expense()
+        expense.property = self.utility_type.property
+        expense.category = self.utility_type.category
+        expense.kind = Expense.KIND_UTILITY
+        expense.date = self.bill_date or self.period_end or timezone.localdate()
+        expense.description = f"{self.utility_type.name} bill"
+        expense.vendor = self.utility_type.supplier or expense.vendor
+        expense.amount = self.amount
+        expense.gst_amount = self.gst_amount
+        expense.apportionment = self.utility_type.apportionment
+        expense.source = "utility_bill"
+        expense.save()
+        if self.expense_id != expense.id:
+            self.expense = expense
+            super().save(update_fields=["expense"])
+
+    def __str__(self):
+        when = self.bill_date or self.period_end
+        return f"{self.utility_type.name} · {when} · {self.amount}"

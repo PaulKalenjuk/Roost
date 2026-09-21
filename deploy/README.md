@@ -27,8 +27,8 @@ mkdir -p ~/roost/{app,config,media}
 install -m 600 /dev/null ~/roost/config/roost.env
 # fill in SECRET_KEY, POSTGRES_PASSWORD, etc. (see roost.env.example)
 
-# 4. build the image
-podman build -t localhost/roost:latest ~/roost/app/backend
+# 4. build the image (context = repo root, so the SPA gets built too)
+podman build -f ~/roost/app/backend/Dockerfile -t localhost/roost:latest ~/roost/app
 
 # 5. install the units
 cp ~/roost/app/deploy/roost.network ~/.config/containers/systemd/
@@ -60,8 +60,9 @@ Whatever triggers the first run also runs migrations (`entrypoint.sh`) and, if
 ## Updating
 
 ```bash
-rsync -a --delete backend/ homeserver:~/roost/app/backend/
-ssh homeserver 'podman build -t localhost/roost:latest ~/roost/app/backend && systemctl --user restart roost-app.service'
+rsync -a --delete --exclude node_modules --exclude backend/spa \
+      --exclude __pycache__ --exclude .env ./ homeserver:~/roost/app/
+ssh homeserver 'podman build -f ~/roost/app/backend/Dockerfile -t localhost/roost:latest ~/roost/app && systemctl --user restart roost-app.service'
 ```
 
 (`roost-db` has `AutoUpdate=registry` so the Postgres image tracks upstream.)
