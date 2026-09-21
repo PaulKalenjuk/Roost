@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, fetchList, pct, type Listing, type Owner, type Ownership, type Property } from '../api'
 import { Alert, Field } from '../components'
 import { useProperties } from '../store'
@@ -42,21 +42,33 @@ interface OwnerRow {
 }
 
 /**
- * Build the ownership rows: one row per existing owner, pre-filled with their
- * current share (percentage) where they already have one.  Any percentages the
- * user has already typed (`preserve`) win, so refreshing the owner list doesn't
- * wipe in-progress edits.
+ * Build the ownership rows.
+ *
+ * * If any ownership exists, those owners are the source of truth (so removing
+ *   someone and saving keeps them removed).
+ * * Otherwise every known owner is offered as a candidate, minus any the user has
+ *   removed this session (`exclude`).
+ * * `preserve` keeps percentages already typed so refreshing the owner list
+ *   doesn't wipe in-progress edits.
  */
-function buildOwnerRows(allOwners: Owner[], ownerships: Ownership[], preserve?: OwnerRow[]): OwnerRow[] {
-  const shareByOwner = new Map(ownerships.map((o) => [Number(o.owner), o.share_pct]))
+function buildOwnerRows(
+  allOwners: Owner[],
+  ownerships: Ownership[],
+  exclude: number[] = [],
+  preserve?: OwnerRow[],
+): OwnerRow[] {
+  if (ownerships.length > 0) {
+    return ownerships.map((o) => ({
+      owner: Number(o.owner),
+      percent: String(Number(o.share_pct) * 100),
+    }))
+  }
   const typed = new Map(
     (preserve ?? []).filter((r) => r.owner).map((r) => [r.owner as number, r.percent]),
   )
-  const rows: OwnerRow[] = allOwners.map((o) => {
-    if (typed.has(o.id)) return { owner: o.id, percent: typed.get(o.id)! }
-    const share = shareByOwner.get(o.id)
-    return { owner: o.id, percent: share !== undefined ? String(Number(share) * 100) : '' }
-  })
+  const rows: OwnerRow[] = allOwners
+    .filter((o) => !exclude.includes(o.id))
+    .map((o) => ({ owner: o.id, percent: typed.get(o.id) ?? '' }))
   if (rows.length === 0) rows.push({ owner: '', percent: '' })
   return rows
 }
@@ -75,6 +87,16 @@ export default function PropertySetup() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+
+  // Owners the user removed on this screen; kept out of the candidate list until
+  // the property changes or the page is reloaded.
+  const removedRef = useRef<number[]>([])
+  const [removed, setRemoved] = useState<number[]>([])
+  const lastPropRef = useRef<number | null>(null)
+  const markRemoved = (ids: number[]) => {
+    removedRef.current = ids
+    setRemoved(ids)
+  }
 
   const refreshOwners = async () => setOwners(await fetchList<Owner>('/api/owners/'))
 
@@ -103,7 +125,11 @@ export default function PropertySetup() {
       default_depreciation_method: selected.default_depreciation_method,
       notes: selected.notes ?? '',
     })
-    setRows(buildOwnerRows(owners, selected.ownerships ?? []))
+    if (lastPropRef.current !== selected.id) {
+      lastPropRef.current = selected.id
+      markRemoved([])
+    }
+    setRows(buildOwnerRows(owners, selected.ownerships ?? [], removedRef.current))
     fetchList<Listing>(`/api/listings/?property=${selected.id}`).then(setListings).catch(() => {})
   }, [selectedId, properties])
 
@@ -111,7 +137,9 @@ export default function PropertySetup() {
   // for anyone missing — without discarding percentages already entered.
   const ownersKey = owners.map((o) => o.id).join(',')
   useEffect(() => {
-    setRows((prev) => buildOwnerRows(owners, selected?.ownerships ?? [], prev))
+    setRows((prev) =>
+      buildOwnerRows(owners, selected?.ownerships ?? [], removedRef.current, prev),
+    )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownersKey])
 
@@ -159,10 +187,24 @@ export default function PropertySetup() {
     setNotice('')
     const filled = rows.filter((r) => r.owner)
     const total = filled.reduce((sum, r) => sum + Number(r.percent || 0), 0)
+
+    // No owner rows selected: clear all ownership for this property.
     if (filled.length === 0) {
-      setError('Add at least one owner row first.')
+      setBusy(true)
+      try {
+        for (const existing of asset.ownerships ?? []) {
+          await api(`/api/ownerships/${existing.id}/`, { method: 'DELETE' })
+        }
+        await reload()
+        setNotice('Ownership cleared.')
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Save failed')
+      } finally {
+        setBusy(false)
+      }
       return
     }
+
     const seen = new Set<number | ''>()
     for (const r of filled) {
       if (seen.has(r.owner)) {
@@ -352,9 +394,14 @@ export default function PropertySetup() {
                   <select
                     value={r.owner}
                     onChange={(e) => {
+                      const chosen = e.target.value ? Number(e.target.value) : ''
                       const copy = [...rows]
-                      copy[index] = { ...copy[index], owner: e.target.value ? Number(e.target.value) : '' }
+                      copy[index] = { ...copy[index], owner: chosen }
                       setRows(copy)
+                      // re-picking someone previously removed re-admits them
+                      if (chosen !== '' && removed.includes(chosen)) {
+                        markRemoved(removed.filter((id) => id !== chosen))
+                      }
                     }}
                   >
                     <option value="">— select owner —</option>
@@ -381,7 +428,17 @@ export default function PropertySetup() {
                     }}
                   />
                 </div>
-                <button type="button" className="ghost small" onClick={() => setRows(rows.filter((_, i) => i !== index))}>
+                <button
+                  type="button"
+                  className="ghost small"
+                  onClick={() => {
+                    const row = rows[index]
+                    setRows(rows.filter((_, i) => i !== index))
+                    if (row.owner && !removed.includes(row.owner)) {
+                      markRemoved([...removed, Number(row.owner)])
+                    }
+                  }}
+                >
                   Remove
                 </button>
               </div>
