@@ -1,0 +1,19 @@
+[Unit]
+Description=Roost — Postgres database
+Wants=roost-network.service
+After=roost-network.service
+
+[Container]
+Image=docker.io/library/postgres:16-alpine
+ContainerName=roost-db
+Network=roost.network
+Volume=roost-db-data:/var/lib/postgresql/data
+EnvironmentFile=/home/paulkalenjuk/roost/config/roost.env
+AutoUpdate=registry
+
+[Service]
+Restart=always
+TimeoutStartSec=180
+
+[Install]
+WantedBy=default.target

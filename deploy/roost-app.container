@@ -1,0 +1,21 @@
+[Unit]
+Description=Roost — Django app (gunicorn)
+Wants=roost-network.service
+After=roost-network.service roost-db.service
+Requires=roost-db.service
+
+[Container]
+Image=localhost/roost:latest
+ContainerName=roost-app
+Network=roost.network
+PublishPort=8686:8000
+Volume=roost-media:/app/media
+EnvironmentFile=/home/paulkalenjuk/roost/config/roost.env
+AutoUpdate=never
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

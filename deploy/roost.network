@@ -1,0 +1,5 @@
+[Unit]
+Description=Roost — isolated network for the short-stay ledger containers
+
+[Network]
+NetworkName=roost
