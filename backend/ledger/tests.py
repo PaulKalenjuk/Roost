@@ -33,7 +33,7 @@ from .models import (
     UtilityBill,
     UtilityType,
 )
-from .services import bill_extract
+from .services import asset_extract, bill_extract
 
 SAMPLE_CSV = """Date,Type,Confirmation Code,Listing,Guest,Start Date,End Date,Nights,Gross Earnings,Cleaning Fee,Service Fee,Payout Date,Amount,Currency
 2026-01-05,Reservation,HMABC123,Seaside Shack,Jane Doe,2026-01-10,2026-01-14,4,900.00,120.00,135.00,2026-01-05,-885.00,AUD
@@ -453,6 +453,56 @@ class ReceiptUploadTests(BaseLedgerTestCase):
         self.assertEqual(response.status_code, 201, response.content)
         self.assertEqual(asset.receipts.count(), 1)
         self.assertEqual(asset.receipts.first().original_name, "aircon.pdf")
+
+
+class AssetExtractionTests(TestCase):
+    """Receipt → asset fields, with the effective life flagged as an estimate."""
+
+    def test_no_text_layer_reports_needs_ocr(self):
+        with mock.patch.object(asset_extract, "extract_pdf_text", return_value=""):
+            data = asset_extract.extract_asset(b"x", filename="scan.pdf")
+        self.assertTrue(data["needs_ocr"])
+
+    @override_settings(DEEPSEEK_KEY="***")
+    def test_extract_coerces_fields_and_flags_estimate(self):
+        fake = {
+            "name": "Reverse-cycle air conditioner",
+            "supplier": "Harvey Norman",
+            "cost": "$2,499.00",
+            "gst_amount": "227.18",
+            "purchase_date": "12/08/2025",
+            "asset_kind": "plant_equipment",
+            "effective_life_years": "10",
+            "suggested_method": "diminishing_value",
+            "currency": "aud",
+            "notes": "Mitsubishi 7kW",
+        }
+        with mock.patch.object(asset_extract, "extract_pdf_text", return_value="text"), \
+             mock.patch.object(asset_extract, "call_json", return_value=fake):
+            data = asset_extract.extract_asset(b"x", filename="receipt.pdf")
+        self.assertEqual(data["name"], "Reverse-cycle air conditioner")
+        self.assertEqual(data["supplier"], "Harvey Norman")
+        self.assertEqual(data["cost"], "2499.00")
+        self.assertEqual(data["gst_amount"], "227.18")
+        self.assertEqual(data["purchase_date"], "2025-08-12")
+        self.assertEqual(data["asset_kind"], "plant_equipment")
+        self.assertEqual(data["effective_life_years"], "10")
+        self.assertTrue(data["effective_life_is_estimate"])
+        self.assertEqual(data["suggested_method"], "diminishing_value")
+        self.assertEqual(data["currency"], "AUD")
+
+    def test_invalid_kind_and_absurd_life_are_discarded(self):
+        fake = {"asset_kind": "spaceship", "effective_life_years": "500"}
+        with mock.patch.object(asset_extract, "extract_pdf_text", return_value="t"), \
+             mock.patch.object(asset_extract, "call_json", return_value=fake):
+            data = asset_extract.extract_asset(b"x")
+        self.assertIsNone(data["asset_kind"])
+        self.assertIsNone(data["effective_life_years"])
+        self.assertFalse(data["effective_life_is_estimate"])
+
+    def test_extract_endpoint_requires_login(self):
+        response = self.client.post("/api/assets/extract/")
+        self.assertIn(response.status_code, (401, 403))
 
 
 class UtilityCoverageTests(BaseLedgerTestCase):

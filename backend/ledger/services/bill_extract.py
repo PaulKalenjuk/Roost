@@ -83,7 +83,12 @@ def _coerce_date(value):
     return None
 
 
-def _call_deepseek(text):
+def call_json(system_prompt, user_prompt):
+    """Call DeepSeek and return the parsed JSON object.
+
+    Raises :class:`BillExtractionUnavailable` when the key is missing, the call
+    fails, or the response isn't usable JSON.
+    """
     key = settings.DEEPSEEK_KEY
     if not key:
         raise BillExtractionUnavailable("DEEPSEEK_KEY is not configured")
@@ -91,13 +96,8 @@ def _call_deepseek(text):
     payload = {
         "model": settings.DEEPSEEK_MODEL,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": USER_TEMPLATE.format(
-                    today=dt.date.today().isoformat(), text=text
-                ),
-            },
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
         ],
         "temperature": 0,
         "response_format": {"type": "json_object"},
@@ -132,6 +132,13 @@ def _call_deepseek(text):
         return json.loads(match.group(0) if match else content)
     except json.JSONDecodeError as exc:
         raise BillExtractionUnavailable("DeepSeek did not return valid JSON") from exc
+
+
+def _call_deepseek(text):
+    return call_json(
+        SYSTEM_PROMPT,
+        USER_TEMPLATE.format(today=dt.date.today().isoformat(), text=text),
+    )
 
 
 def extract_bill(source, filename=""):

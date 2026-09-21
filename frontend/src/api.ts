@@ -186,11 +186,30 @@ export interface Asset {
   method: 'diminishing_value' | 'prime_cost'
   business_use_pct: string
   low_value_pool: boolean
+  effective_life_is_estimate: boolean
   disposed_date: string | null
   disposal_value: string | null
   notes: string
   depreciation_entries: DepreciationEntry[]
   receipts: Receipt[]
+}
+
+export interface AssetExtraction {
+  name?: string | null
+  supplier?: string | null
+  cost?: string | null
+  gst_amount?: string | null
+  purchase_date?: string | null
+  asset_kind?: string | null
+  effective_life_years?: string | null
+  effective_life_is_estimate?: boolean
+  suggested_method?: string | null
+  currency?: string
+  notes?: string | null
+  extracted_by?: string
+  needs_ocr?: boolean
+  message?: string
+  detail?: string
 }
 
 export interface MonthlyEarnings {

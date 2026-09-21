@@ -198,8 +198,8 @@ class AssetSerializer(BaseSerializer):
         fields = [
             "id", "property", "property_name", "name", "kind", "purchase_date",
             "cost", "effective_life_years", "method", "business_use_pct",
-            "low_value_pool", "disposed_date", "disposal_value", "notes",
-            "depreciation_entries", "receipts",
+            "low_value_pool", "effective_life_is_estimate", "disposed_date",
+            "disposal_value", "notes", "depreciation_entries", "receipts",
         ]
 
 

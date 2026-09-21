@@ -47,7 +47,7 @@ from .serializers import (
     UtilityBillSerializer,
     UtilityTypeSerializer,
 )
-from .services import bill_extract
+from .services import asset_extract, bill_extract
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +233,22 @@ def import_income_pdf(request):
     listing = get_object_or_404(Listing, pk=listing_id)
     batch = airbnb_pdf.import_report(upload, listing, filename=upload.name)
     return Response(ImportBatchSerializer(batch).data, status=201)
+
+
+@api_view(["POST"])
+def extract_asset(request):
+    """Read an uploaded purchase receipt and return asset-register fields."""
+    upload = request.FILES.get("file")
+    if not upload:
+        return Response({"detail": "No file uploaded."}, status=400)
+    try:
+        data = asset_extract.extract_asset(upload, filename=upload.name)
+    except bill_extract.BillExtractionUnavailable as exc:
+        return Response(
+            {"detail": str(exc), "available": False},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    return Response(data)
 
 
 @api_view(["GET"])

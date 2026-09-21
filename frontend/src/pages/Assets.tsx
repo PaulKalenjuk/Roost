@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, fetchList, money, pct, type Asset } from '../api'
+import { api, fetchList, money, pct, type Asset, type AssetExtraction } from '../api'
 import { Alert, Field } from '../components'
 import { useProperties } from '../store'
 
@@ -19,6 +19,8 @@ export default function Assets() {
     low_value_pool: false,
   })
   const assetFileRef = useRef<HTMLInputElement>(null)
+  const [reading, setReading] = useState(false)
+  const [estimated, setEstimated] = useState(false)
 
   const load = async () => {
     if (!selected) return
@@ -61,6 +63,7 @@ export default function Assets() {
           method: form.method,
           business_use_pct: form.business_use_pct || '1',
           low_value_pool: form.low_value_pool,
+          effective_life_is_estimate: estimated,
         }),
       })
       await api(`/api/assets/${created.id}/recompute/`, { method: 'POST' })
@@ -78,9 +81,46 @@ export default function Assets() {
         setNotice('Asset added and depreciation schedule built.')
       }
       setForm({ ...form, name: '', cost: '', effective_life_years: '' })
+      setEstimated(false)
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
+    }
+  }
+
+  const readReceipt = async () => {
+    const file = assetFileRef.current?.files?.[0]
+    if (!file) {
+      setError('Choose the receipt file first.')
+      return
+    }
+    setError('')
+    setNotice('')
+    setReading(true)
+    const body = new FormData()
+    body.append('file', file)
+    try {
+      const data = await api<AssetExtraction>('/api/assets/extract/', { method: 'POST', body })
+      if (data.needs_ocr) {
+        setError(data.message ?? 'This receipt has no text layer — enter the details manually.')
+        return
+      }
+      setForm((f) => ({
+        ...f,
+        name: data.name ?? f.name,
+        cost: data.cost ?? f.cost,
+        purchase_date: data.purchase_date ?? f.purchase_date,
+        effective_life_years: data.effective_life_years ?? f.effective_life_years,
+        kind: data.asset_kind ?? f.kind,
+        method: data.suggested_method ?? f.method,
+      }))
+      setEstimated(Boolean(data.effective_life_is_estimate))
+      setNotice(`Read with ${data.extracted_by ?? 'AI'} — check the values, then Add asset.`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Extraction failed'
+      setError(`${message} — you can still fill the fields in manually.`)
+    } finally {
+      setReading(false)
     }
   }
 
@@ -142,13 +182,44 @@ export default function Assets() {
               <option value="true">Yes</option>
             </select>
           </Field>
-          <Field
-            label="Receipt (PDF or image)"
-            hint="Optional. You can add more from the assets table later."
-          >
-            <input type="file" accept="application/pdf,image/*" ref={assetFileRef} />
-          </Field>
         </div>
+
+        <div className="row" style={{ marginTop: 12 }}>
+          <div>
+            <label>Receipt (PDF or image)</label>
+            <input type="file" accept="application/pdf,image/*" ref={assetFileRef} />
+          </div>
+          <button
+            type="button"
+            className="ghost btn-busy"
+            onClick={readReceipt}
+            disabled={reading || !selected}
+          >
+            {reading ? (
+              <>
+                <span className="spinner" />
+                Reading receipt…
+              </>
+            ) : (
+              '✨ Read receipt with AI'
+            )}
+          </button>
+        </div>
+
+        {reading ? (
+          <Alert kind="info">
+            <span className="spinner" />
+            Sending the receipt to DeepSeek — filling in the name, cost, date and an estimated
+            effective life…
+          </Alert>
+        ) : null}
+        {estimated && !reading ? (
+          <div className="hint">
+            Effective life ({form.effective_life_years || '—'} yrs) was{' '}
+            <strong>estimated by AI</strong> — verify it against the ATO effective-life schedule.
+          </div>
+        ) : null}
+
         <div style={{ height: 12 }} />
         <button disabled={!selected}>Add asset</button>
       </form>
@@ -177,7 +248,20 @@ export default function Assets() {
               const latest = a.depreciation_entries?.[a.depreciation_entries.length - 1]
               return (
                 <tr key={a.id}>
-                  <td>{a.name}</td>
+                  <td>
+                    {a.name}
+                    {a.effective_life_is_estimate ? (
+                      <>
+                        {' '}
+                        <span
+                          className="badge warn"
+                          title="Effective life was estimated (AI) — verify against the ATO schedule"
+                        >
+                          est. life
+                        </span>
+                      </>
+                    ) : null}
+                  </td>
                   <td>{a.purchase_date}</td>
                   <td className="num">{money(a.cost)}</td>
                   <td>{a.method === 'prime_cost' ? 'Prime cost' : 'Diminishing'}</td>

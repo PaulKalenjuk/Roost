@@ -606,6 +606,13 @@ class Asset(TimestampedModel):
         default=False,
         help_text="Pooled (e.g. cost below the ATO low-value threshold).",
     )
+    effective_life_is_estimate = models.BooleanField(
+        default=False,
+        help_text=(
+            "Effective life was estimated (e.g. read from a receipt by AI) rather "
+            "than taken from the ATO effective-life schedule — worth verifying."
+        ),
+    )
 
     disposed_date = models.DateField(null=True, blank=True)
     disposal_value = models.DecimalField(
