@@ -187,6 +187,8 @@ export interface Asset {
   business_use_pct: string
   low_value_pool: boolean
   effective_life_is_estimate: boolean
+  image: string | null
+  image_url: string | null
   disposed_date: string | null
   disposal_value: string | null
   notes: string

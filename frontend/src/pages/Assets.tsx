@@ -19,6 +19,8 @@ export default function Assets() {
     low_value_pool: false,
   })
   const assetFileRef = useRef<HTMLInputElement>(null)
+  const assetImageRef = useRef<HTMLInputElement>(null)
+  const [editingAssetId, setEditingAssetId] = useState<number | null>(null)
   const [reading, setReading] = useState(false)
   const [estimated, setEstimated] = useState(false)
 
@@ -32,14 +34,64 @@ export default function Assets() {
   }, [selected?.id])
 
   useEffect(() => {
-    if (selected) {
+    if (selected && !editingAssetId) {
       setForm((f) => ({
         ...f,
         method: selected.default_depreciation_method,
         business_use_pct: selected.let_share ?? '',
       }))
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id, selected?.default_depreciation_method, selected?.let_share])
+
+  const resetForm = () => {
+    setEditingAssetId(null)
+    setEstimated(false)
+    setForm({
+      name: '',
+      kind: 'plant_equipment',
+      purchase_date: new Date().toISOString().slice(0, 10),
+      cost: '',
+      effective_life_years: '',
+      method: selected?.default_depreciation_method ?? 'diminishing_value',
+      business_use_pct: selected?.let_share ?? '',
+      low_value_pool: false,
+    })
+    if (assetFileRef.current) assetFileRef.current.value = ''
+    if (assetImageRef.current) assetImageRef.current.value = ''
+  }
+
+  const startEdit = (a: Asset) => {
+    setEditingAssetId(a.id)
+    setEstimated(Boolean(a.effective_life_is_estimate))
+    setForm({
+      name: a.name,
+      kind: a.kind,
+      purchase_date: a.purchase_date ?? '',
+      cost: a.cost ?? '',
+      effective_life_years: a.effective_life_years ?? '',
+      method: a.method,
+      business_use_pct: a.business_use_pct ?? '',
+      low_value_pool: a.low_value_pool,
+    })
+    if (assetFileRef.current) assetFileRef.current.value = ''
+    if (assetImageRef.current) assetImageRef.current.value = ''
+    setError('')
+    setNotice(`Editing “${a.name}”.`)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const deleteAsset = async (a: Asset) => {
+    if (!window.confirm(`Delete the asset “${a.name}” and its receipts?`)) return
+    try {
+      await api(`/api/assets/${a.id}/`, { method: 'DELETE' })
+      if (editingAssetId === a.id) resetForm()
+      await load()
+      setNotice('Asset deleted.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed')
+    }
+  }
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -50,38 +102,46 @@ export default function Assets() {
       setError('Name and cost are required.')
       return
     }
+    const body = new FormData()
+    body.append('property', String(selected.id))
+    body.append('name', form.name)
+    body.append('kind', form.kind)
+    body.append('purchase_date', form.purchase_date)
+    body.append('cost', form.cost)
+    body.append('effective_life_years', form.effective_life_years)
+    body.append('method', form.method)
+    body.append('business_use_pct', form.business_use_pct || '1')
+    body.append('low_value_pool', String(form.low_value_pool))
+    body.append('effective_life_is_estimate', String(estimated))
+    const image = assetImageRef.current?.files?.[0]
+    if (image) body.append('image', image)
+
     try {
-      const created = await api<Asset>('/api/assets/', {
-        method: 'POST',
-        body: JSON.stringify({
-          property: selected.id,
-          name: form.name,
-          kind: form.kind,
-          purchase_date: form.purchase_date,
-          cost: form.cost,
-          effective_life_years: form.effective_life_years || null,
-          method: form.method,
-          business_use_pct: form.business_use_pct || '1',
-          low_value_pool: form.low_value_pool,
-          effective_life_is_estimate: estimated,
-        }),
-      })
-      await api(`/api/assets/${created.id}/recompute/`, { method: 'POST' })
-      const file = assetFileRef.current?.files?.[0]
-      if (file) {
-        const body = new FormData()
-        body.append('file', file)
-        body.append('property', String(selected.id))
-        body.append('asset', String(created.id))
-        body.append('original_name', file.name)
-        await api('/api/receipts/', { method: 'POST', body })
-        if (assetFileRef.current) assetFileRef.current.value = ''
-        setNotice('Asset added with its receipt attached, and the depreciation schedule built.')
+      let assetId: number
+      if (editingAssetId) {
+        const updated = await api<Asset>(`/api/assets/${editingAssetId}/`, {
+          method: 'PATCH',
+          body,
+        })
+        assetId = updated.id
+        setNotice('Asset updated and its depreciation recalculated.')
       } else {
+        const created = await api<Asset>('/api/assets/', { method: 'POST', body })
+        assetId = created.id
         setNotice('Asset added and depreciation schedule built.')
       }
-      setForm({ ...form, name: '', cost: '', effective_life_years: '' })
-      setEstimated(false)
+      await api(`/api/assets/${assetId}/recompute/`, { method: 'POST' })
+
+      const receipt = assetFileRef.current?.files?.[0]
+      if (receipt) {
+        const receiptBody = new FormData()
+        receiptBody.append('file', receipt)
+        receiptBody.append('property', String(selected.id))
+        receiptBody.append('asset', String(assetId))
+        receiptBody.append('original_name', receipt.name)
+        await api('/api/receipts/', { method: 'POST', body: receiptBody })
+      }
+      resetForm()
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
@@ -146,7 +206,7 @@ export default function Assets() {
       {error ? <Alert kind="err">{error}</Alert> : null}
 
       <form className="panel" onSubmit={save}>
-        <h2>Add an asset</h2>
+        <h2>{editingAssetId ? 'Edit asset' : 'Add an asset'}</h2>
         <div className="grid">
           <Field label="Name">
             <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
@@ -189,6 +249,10 @@ export default function Assets() {
             <label>Receipt (PDF or image)</label>
             <input type="file" accept="application/pdf,image/*" ref={assetFileRef} />
           </div>
+          <div>
+            <label>Asset photo (image)</label>
+            <input type="file" accept="image/*" ref={assetImageRef} />
+          </div>
           <button
             type="button"
             className="ghost btn-busy"
@@ -221,7 +285,14 @@ export default function Assets() {
         ) : null}
 
         <div style={{ height: 12 }} />
-        <button disabled={!selected}>Add asset</button>
+        <div className="row">
+          <button disabled={!selected}>{editingAssetId ? 'Save changes' : 'Add asset'}</button>
+          {editingAssetId ? (
+            <button type="button" className="ghost" onClick={resetForm}>
+              Cancel
+            </button>
+          ) : null}
+        </div>
       </form>
 
       <div className="panel">
@@ -235,19 +306,21 @@ export default function Assets() {
           <thead>
             <tr>
               <th>Asset</th>
+              <th>Photo</th>
               <th>Date</th>
               <th className="num">Cost</th>
               <th>Method</th>
               <th className="num">Business use</th>
               <th className="num">Latest deduction</th>
               <th>Receipt</th>
+              <th />
             </tr>
           </thead>
           <tbody>
             {items.map((a) => {
               const latest = a.depreciation_entries?.[a.depreciation_entries.length - 1]
               return (
-                <tr key={a.id}>
+                <tr key={a.id} className={a.id === editingAssetId ? 'selected-row' : ''}>
                   <td>
                     {a.name}
                     {a.effective_life_is_estimate ? (
@@ -261,6 +334,26 @@ export default function Assets() {
                         </span>
                       </>
                     ) : null}
+                  </td>
+                  <td>
+                    {a.image_url ? (
+                      <a href={a.image_url} target="_blank" rel="noreferrer">
+                        <img
+                          src={a.image_url}
+                          alt={a.name}
+                          style={{
+                            width: 44,
+                            height: 44,
+                            objectFit: 'cover',
+                            borderRadius: 6,
+                            border: '1px solid var(--line)',
+                            display: 'block',
+                          }}
+                        />
+                      </a>
+                    ) : (
+                      '—'
+                    )}
                   </td>
                   <td>{a.purchase_date}</td>
                   <td className="num">{money(a.cost)}</td>
@@ -278,12 +371,22 @@ export default function Assets() {
                   <td>
                     <AssetReceiptCell asset={a} onUploaded={load} />
                   </td>
+                  <td>
+                    <div className="row">
+                      <button type="button" className="ghost small" onClick={() => startEdit(a)}>
+                        Edit
+                      </button>
+                      <button type="button" className="ghost small" onClick={() => deleteAsset(a)}>
+                        Delete
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               )
             })}
             {items.length === 0 ? (
               <tr>
-                <td colSpan={7} className="muted">
+                <td colSpan={9} className="muted">
                   No assets yet — add one above (attach its purchase receipt if you have it).
                 </td>
               </tr>

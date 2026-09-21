@@ -14,6 +14,7 @@ from unittest import mock
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from rest_framework.test import APIClient
 
 from . import depreciation, reports
 from .coverage import coverage_for
@@ -503,6 +504,98 @@ class AssetExtractionTests(TestCase):
     def test_extract_endpoint_requires_login(self):
         response = self.client.post("/api/assets/extract/")
         self.assertIn(response.status_code, (401, 403))
+
+
+class AssetImageAndDeleteTests(BaseLedgerTestCase):
+    """Asset photo upload, and deleting an asset cleans up after itself."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.mkdtemp()
+        override = override_settings(MEDIA_ROOT=self.tmp)
+        override.enable()
+        self.addCleanup(override.disable)
+        user = User.objects.create_user("assetuser", "a@example.com", "unused-pw")
+        self.api = APIClient()
+        self.api.force_login(user)
+
+    @staticmethod
+    def _png(name="ac.png"):
+        png = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00"
+            b"\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        return SimpleUploadedFile(name, png, content_type="image/png")
+
+    def _create(self, **extra):
+        payload = {
+            "property": self.prop.id,
+            "name": "Reverse-cycle aircon",
+            "purchase_date": "2025-08-01",
+            "cost": "2000.00",
+            "effective_life_years": "10",
+        }
+        payload.update(extra)
+        response = self.api.post("/api/assets/", payload, format="multipart")
+        self.assertEqual(response.status_code, 201, response.content)
+        return response.json()
+
+    def test_create_asset_with_image_exposes_url(self):
+        body = self._create(image=self._png())
+        asset = Asset.objects.get()
+        self.assertTrue(asset.image.name.startswith("assets/"))
+        self.assertTrue(Path(self.tmp).joinpath(asset.image.name).exists())
+        self.assertIn("/media/assets/", body["image_url"])
+
+    def test_edit_keeps_image_when_not_supplied(self):
+        body = self._create(image=self._png())
+        original = Asset.objects.get().image.name
+        response = self.api.patch(
+            f"/api/assets/{body['id']}/", {"name": "Aircon v2"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        asset = Asset.objects.get()
+        self.assertEqual(asset.name, "Aircon v2")
+        self.assertEqual(asset.image.name, original)
+
+    def test_edit_replaces_image(self):
+        body = self._create(image=self._png("old.png"))
+        self.assertTrue(Asset.objects.get().image.name.endswith("old.png"))
+        response = self.api.patch(
+            f"/api/assets/{body['id']}/", {"image": self._png("new.png")}, format="multipart"
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(Asset.objects.get().image.name.endswith("new.png"))
+
+    def test_edit_can_set_estimate_flag(self):
+        body = self._create()
+        self.assertFalse(body["effective_life_is_estimate"])
+        response = self.api.patch(
+            f"/api/assets/{body['id']}/",
+            {"effective_life_is_estimate": True, "effective_life_years": "10"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(Asset.objects.get().effective_life_is_estimate)
+
+    def test_delete_asset_removes_receipts_and_their_files(self):
+        asset = Asset.objects.create(
+            property=self.prop, name="X", purchase_date=dt.date(2025, 8, 1),
+            cost=Decimal("10.00"),
+        )
+        receipt = Receipt.objects.create(
+            property=self.prop, asset=asset, original_name="r.pdf",
+            file=SimpleUploadedFile("r.pdf", b"%PDF-1.4 fake"),
+        )
+        path = Path(self.tmp) / receipt.file.name
+        self.assertTrue(path.exists())
+
+        response = self.api.delete(f"/api/assets/{asset.id}/")
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Asset.objects.filter(pk=asset.pk).exists())
+        self.assertFalse(Receipt.objects.filter(pk=receipt.pk).exists())
+        self.assertFalse(path.exists(), "receipt file was left on disk")
 
 
 class UtilityCoverageTests(BaseLedgerTestCase):

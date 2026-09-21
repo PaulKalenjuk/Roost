@@ -550,6 +550,16 @@ class Receipt(TimestampedModel):
     class Meta:
         ordering = ["-created_at"]
 
+    def delete(self, *args, **kwargs):
+        """Delete the stored file along with the row (Django leaves files behind)."""
+        file = self.file
+        storage = file.storage if file else None
+        name = file.name if file else None
+        result = super().delete(*args, **kwargs)
+        if storage and name:
+            storage.delete(name)
+        return result
+
     def __str__(self):
         return self.original_name or (self.file.name if self.file else "receipt")
 
@@ -618,6 +628,12 @@ class Asset(TimestampedModel):
     disposal_value = models.DecimalField(
         max_digits=12, decimal_places=2, null=True, blank=True
     )
+    image = models.ImageField(
+        upload_to="assets/%Y/%m/",
+        blank=True,
+        null=True,
+        help_text="A photo of the asset (optional).",
+    )
     notes = models.TextField(blank=True)
 
     class Meta:
@@ -630,6 +646,19 @@ class Asset(TimestampedModel):
 
     is_disposed.boolean = True
     is_disposed.short_description = "disposed"
+
+    def delete(self, *args, **kwargs):
+        """Remove the asset's receipts too — they belong to the asset, and the
+        ``Receipt.asset`` FK is SET_NULL (so they'd otherwise be orphaned)."""
+        for receipt in list(self.receipts.all()):
+            receipt.delete()
+        image = self.image
+        storage = image.storage if image else None
+        name = image.name if image else None
+        result = super().delete(*args, **kwargs)
+        if storage and name:
+            storage.delete(name)
+        return result
 
     def __str__(self):
         return f"{self.name} ({self.get_kind_display()})"
@@ -845,3 +874,10 @@ def _delete_expense_with_bill(sender, instance, **kwargs):
     which bypasses ``UtilityBill.delete()``."""
     if instance.expense_id:
         Expense.objects.filter(pk=instance.expense_id).delete()
+
+
+@receiver(post_delete, sender=Asset)
+def _delete_receipts_with_asset(sender, instance, **kwargs):
+    """Cascade-safe cleanup: an asset's receipts go with it."""
+    for receipt in list(Receipt.objects.filter(asset=instance)):
+        receipt.delete()
