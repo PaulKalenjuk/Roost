@@ -47,7 +47,7 @@ from .serializers import (
     UtilityBillSerializer,
     UtilityTypeSerializer,
 )
-from .services import asset_extract, bill_extract
+from .services import asset_extract, bill_extract, expense_extract
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +233,40 @@ def import_income_pdf(request):
     listing = get_object_or_404(Listing, pk=listing_id)
     batch = airbnb_pdf.import_report(upload, listing, filename=upload.name)
     return Response(ImportBatchSerializer(batch).data, status=201)
+
+
+@api_view(["POST"])
+def extract_expense(request):
+    """Read an uploaded receipt for an ad-hoc expense and return form fields."""
+    upload = request.FILES.get("file")
+    if not upload:
+        return Response({"detail": "No file uploaded."}, status=400)
+
+    categories = list(Category.objects.all())
+    try:
+        data = expense_extract.extract_expense(
+            upload, filename=upload.name, category_names=[c.name for c in categories]
+        )
+    except bill_extract.BillExtractionUnavailable as exc:
+        return Response(
+            {"detail": str(exc), "available": False},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    # Match the model's category hint against the user's own categories.
+    hint = (data.get("category_hint") or "").strip().lower()
+    match = None
+    if hint:
+        match = next((c for c in categories if c.name.lower() == hint), None)
+        if match is None:
+            match = next(
+                (c for c in categories if hint in c.name.lower() or c.name.lower() in hint),
+                None,
+            )
+    if match is not None:
+        data["category"] = match.id
+        data["category_name"] = match.name
+    return Response(data)
 
 
 @api_view(["POST"])

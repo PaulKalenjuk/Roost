@@ -196,6 +196,23 @@ export interface Asset {
   receipts: Receipt[]
 }
 
+export interface ExpenseExtraction {
+  vendor?: string | null
+  description?: string | null
+  amount?: string | null
+  gst_amount?: string | null
+  date?: string | null
+  category_hint?: string | null
+  category?: number
+  category_name?: string
+  currency?: string
+  notes?: string | null
+  extracted_by?: string
+  needs_ocr?: boolean
+  message?: string
+  detail?: string
+}
+
 export interface AssetExtraction {
   name?: string | null
   supplier?: string | null

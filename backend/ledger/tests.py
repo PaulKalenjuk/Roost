@@ -34,7 +34,7 @@ from .models import (
     UtilityBill,
     UtilityType,
 )
-from .services import asset_extract, bill_extract
+from .services import asset_extract, bill_extract, expense_extract
 
 SAMPLE_CSV = """Date,Type,Confirmation Code,Listing,Guest,Start Date,End Date,Nights,Gross Earnings,Cleaning Fee,Service Fee,Payout Date,Amount,Currency
 2026-01-05,Reservation,HMABC123,Seaside Shack,Jane Doe,2026-01-10,2026-01-14,4,900.00,120.00,135.00,2026-01-05,-885.00,AUD
@@ -503,6 +503,76 @@ class AssetExtractionTests(TestCase):
 
     def test_extract_endpoint_requires_login(self):
         response = self.client.post("/api/assets/extract/")
+        self.assertIn(response.status_code, (401, 403))
+
+
+class ExpenseExtractionTests(TestCase):
+    """Receipt → ad-hoc expense fields, with a category hint matched locally."""
+
+    def test_no_text_layer_reports_needs_ocr(self):
+        with mock.patch.object(expense_extract, "extract_pdf_text", return_value=""):
+            data = expense_extract.extract_expense(b"x", filename="scan.pdf")
+        self.assertTrue(data["needs_ocr"])
+
+    def test_extract_coerces_fields(self):
+        fake = {
+            "vendor": "Woolworths",
+            "description": "Cleaning supplies and bin liners",
+            "amount": "$57.40",
+            "gst_amount": "5.22",
+            "date": "03/09/2025",
+            "category_hint": "Cleaning",
+            "currency": "aud",
+            "notes": "includes mop",
+        }
+        with mock.patch.object(expense_extract, "extract_pdf_text", return_value="text"), \
+             mock.patch.object(expense_extract, "call_json", return_value=fake):
+            data = expense_extract.extract_expense(b"x", filename="receipt.pdf")
+        self.assertEqual(data["vendor"], "Woolworths")
+        self.assertEqual(data["amount"], "57.40")
+        self.assertEqual(data["gst_amount"], "5.22")
+        self.assertEqual(data["date"], "2025-09-03")
+        self.assertEqual(data["category_hint"], "Cleaning")
+        self.assertEqual(data["currency"], "AUD")
+
+    def _login(self):
+        user = User.objects.create_user("expuser", "e@example.com", "unused-pw")
+        api_client = APIClient()
+        api_client.force_login(user)
+        return api_client
+
+    def test_endpoint_matches_existing_category(self):
+        Category.objects.create(name="Cleaning", kind=Category.KIND_OPERATING)
+        fake = {"vendor": "Woolworths", "amount": "57.40", "category_hint": "cleaning"}
+        client = self._login()
+        with mock.patch.object(expense_extract, "extract_pdf_text", return_value="t"), \
+             mock.patch.object(expense_extract, "call_json", return_value=fake):
+            response = client.post(
+                "/api/expenses/extract/",
+                {"file": SimpleUploadedFile("r.pdf", b"%PDF-1.4")},
+                format="multipart",
+            )
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertEqual(body["category_name"], "Cleaning")
+        self.assertEqual(body["category"], Category.objects.get().id)
+
+    def test_endpoint_leaves_category_unset_when_no_match(self):
+        Category.objects.create(name="Insurance", kind=Category.KIND_OPERATING)
+        fake = {"vendor": "Bunnings", "amount": "30.00", "category_hint": "hardware"}
+        client = self._login()
+        with mock.patch.object(expense_extract, "extract_pdf_text", return_value="t"), \
+             mock.patch.object(expense_extract, "call_json", return_value=fake):
+            response = client.post(
+                "/api/expenses/extract/",
+                {"file": SimpleUploadedFile("r.pdf", b"%PDF-1.4")},
+                format="multipart",
+            )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertNotIn("category", response.json())
+
+    def test_extract_endpoint_requires_login(self):
+        response = self.client.post("/api/expenses/extract/")
         self.assertIn(response.status_code, (401, 403))
 
 

@@ -7,6 +7,7 @@ import {
   type Category,
   type Coverage,
   type Expense,
+  type ExpenseExtraction,
   type Receipt,
   type UtilityBill,
   type UtilityType,
@@ -50,6 +51,8 @@ function AdhocExpenses() {
   const [items, setItems] = useState<Expense[]>([])
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const receiptFileRef = useRef<HTMLInputElement>(null)
+  const [reading, setReading] = useState(false)
   const [form, setForm] = useState({
     category: '',
     date: new Date().toISOString().slice(0, 10),
@@ -78,6 +81,48 @@ function AdhocExpenses() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id])
 
+  const readReceipt = async () => {
+    const file = receiptFileRef.current?.files?.[0]
+    if (!file) {
+      setError('Choose the receipt file first.')
+      return
+    }
+    setError('')
+    setNotice('')
+    setReading(true)
+    const body = new FormData()
+    body.append('file', file)
+    try {
+      const data = await api<ExpenseExtraction>('/api/expenses/extract/', {
+        method: 'POST',
+        body,
+      })
+      if (data.needs_ocr) {
+        setError(data.message ?? 'This receipt has no text layer — enter the details manually.')
+        return
+      }
+      setForm((f) => ({
+        ...f,
+        vendor: data.vendor ?? f.vendor,
+        description: data.description ?? f.description,
+        amount: data.amount ?? f.amount,
+        gst_amount: data.gst_amount ?? f.gst_amount,
+        date: data.date ?? f.date,
+        category: data.category ? String(data.category) : f.category,
+      }))
+      setNotice(
+        data.category_name
+          ? `Read with ${data.extracted_by ?? 'AI'} — matched category “${data.category_name}”. Check the values, then Add expense.`
+          : `Read with ${data.extracted_by ?? 'AI'} — check the values and pick a category, then Add expense.`,
+      )
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Extraction failed'
+      setError(`${message} — you can still fill the fields in manually.`)
+    } finally {
+      setReading(false)
+    }
+  }
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selected) return
@@ -101,9 +146,22 @@ function AdhocExpenses() {
       return
     }
     try {
-      await api('/api/expenses/', { method: 'POST', body: JSON.stringify(payload) })
+      const created = await api<Expense>('/api/expenses/', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      const receipt = receiptFileRef.current?.files?.[0]
+      if (receipt) {
+        const receiptBody = new FormData()
+        receiptBody.append('file', receipt)
+        receiptBody.append('property', String(selected.id))
+        receiptBody.append('expense', String(created.id))
+        receiptBody.append('original_name', receipt.name)
+        await api('/api/receipts/', { method: 'POST', body: receiptBody })
+        if (receiptFileRef.current) receiptFileRef.current.value = ''
+      }
       setForm({ ...form, vendor: '', description: '', amount: '', gst_amount: '' })
-      setNotice('Expense added.')
+      setNotice(receipt ? 'Expense added with its receipt attached.' : 'Expense added.')
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
@@ -160,6 +218,35 @@ function AdhocExpenses() {
             </select>
           </Field>
         </div>
+        <div className="row" style={{ marginTop: 12 }}>
+          <div>
+            <label>Receipt (PDF or image)</label>
+            <input type="file" accept="application/pdf,image/*" ref={receiptFileRef} />
+          </div>
+          <button
+            type="button"
+            className="ghost btn-busy"
+            onClick={readReceipt}
+            disabled={reading || !selected}
+          >
+            {reading ? (
+              <>
+                <span className="spinner" />
+                Reading receipt…
+              </>
+            ) : (
+              '✨ Read receipt with AI'
+            )}
+          </button>
+        </div>
+
+        {reading ? (
+          <Alert kind="info">
+            <span className="spinner" />
+            Sending the receipt to DeepSeek — filling in vendor, amount, GST and date…
+          </Alert>
+        ) : null}
+
         <div style={{ height: 12 }} />
         <button disabled={!selected}>Add expense</button>
         {notice ? <Alert kind="ok">{notice}</Alert> : null}
