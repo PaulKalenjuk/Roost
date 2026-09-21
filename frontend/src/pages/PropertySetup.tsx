@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, fetchList, pct, type Listing, type Owner, type Property } from '../api'
+import { api, fetchList, pct, type Listing, type Owner, type Ownership, type Property } from '../api'
 import { Alert, Field } from '../components'
 import { useProperties } from '../store'
 
@@ -39,6 +39,26 @@ interface OwnerRow {
   owner: number | ''
   /** Entered as a percentage (0–100); stored as a fraction. */
   percent: string
+}
+
+/**
+ * Build the ownership rows: one row per existing owner, pre-filled with their
+ * current share (percentage) where they already have one.  Any percentages the
+ * user has already typed (`preserve`) win, so refreshing the owner list doesn't
+ * wipe in-progress edits.
+ */
+function buildOwnerRows(allOwners: Owner[], ownerships: Ownership[], preserve?: OwnerRow[]): OwnerRow[] {
+  const shareByOwner = new Map(ownerships.map((o) => [Number(o.owner), o.share_pct]))
+  const typed = new Map(
+    (preserve ?? []).filter((r) => r.owner).map((r) => [r.owner as number, r.percent]),
+  )
+  const rows: OwnerRow[] = allOwners.map((o) => {
+    if (typed.has(o.id)) return { owner: o.id, percent: typed.get(o.id)! }
+    const share = shareByOwner.get(o.id)
+    return { owner: o.id, percent: share !== undefined ? String(Number(share) * 100) : '' }
+  })
+  if (rows.length === 0) rows.push({ owner: '', percent: '' })
+  return rows
 }
 
 export default function PropertySetup() {
@@ -83,14 +103,17 @@ export default function PropertySetup() {
       default_depreciation_method: selected.default_depreciation_method,
       notes: selected.notes ?? '',
     })
-    setRows(
-      (selected.ownerships ?? []).map((o) => ({
-        owner: o.owner,
-        percent: String(Number(o.share_pct) * 100),
-      })),
-    )
+    setRows(buildOwnerRows(owners, selected.ownerships ?? []))
     fetchList<Listing>(`/api/listings/?property=${selected.id}`).then(setListings).catch(() => {})
   }, [selectedId, properties])
+
+  // When the owner list changes (e.g. a new owner was just created), add a row
+  // for anyone missing — without discarding percentages already entered.
+  const ownersKey = owners.map((o) => o.id).join(',')
+  useEffect(() => {
+    setRows((prev) => buildOwnerRows(owners, selected?.ownerships ?? [], prev))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownersKey])
 
   const saveProperty = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -139,6 +162,14 @@ export default function PropertySetup() {
     if (filled.length === 0) {
       setError('Add at least one owner row first.')
       return
+    }
+    const seen = new Set<number | ''>()
+    for (const r of filled) {
+      if (seen.has(r.owner)) {
+        setError('Each owner can only appear once.')
+        return
+      }
+      seen.add(r.owner)
     }
     if (Math.abs(total - 100) > 0.01) {
       setError(`Ownership percentages must total 100% (currently ${total.toFixed(2)}%).`)
