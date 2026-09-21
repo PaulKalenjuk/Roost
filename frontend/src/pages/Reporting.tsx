@@ -32,11 +32,11 @@ interface Report {
     total_deductible: Num
     by_category: Record<string, { amount: Num; deductible: Num }>
     notes?: string[]
-    items: Array<{ date: string; category: string; description: string; amount: Num; apportionment: string; share: Num; deductible_amount: Num; detail?: string }>
+    items: Array<{ date: string; category: string; description: string; amount: Num; apportionment: string; share: Num; deductible_amount: Num; detail?: string; working?: string }>
   }
   depreciation: {
     total_deduction: Num
-    lines: Array<{ asset: string; method: string; opening_value: Num; business_use_pct: Num; deduction: Num; closing_value: Num; days_held: number | null }>
+    lines: Array<{ asset: string; method: string; opening_value: Num; business_use_pct: Num; deduction: Num; closing_value: Num; days_held: number | null; working?: string }>
   }
   net_rental_result: Num
 }
@@ -62,6 +62,7 @@ export default function Reporting() {
   const [fyOptions, setFyOptions] = useState<string[]>([])
   const [includeOwners, setIncludeOwners] = useState(true)
   const [recompute, setRecompute] = useState(false)
+  const [working, setWorking] = useState(true)
   const [data, setData] = useState<ReportResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -75,6 +76,7 @@ export default function Reporting() {
       if (fy) params.set('fy', fy)
       if (includeOwners) params.set('owners', '1')
       if (recompute) params.set('recompute', '1')
+      if (working) params.set('working', '1')
       const result = await api<ReportResponse>(`/api/reports/fy/?${params}`)
       setData(result)
       if (!fy && result.fy_options.length) setFy(result.report.financial_year)
@@ -93,6 +95,16 @@ export default function Reporting() {
   }, [selected?.id])
 
   const report = data?.report
+
+  const exportPdf = () => {
+    if (!selected) return
+    const params = new URLSearchParams({ property: String(selected.id) })
+    if (fy) params.set('fy', fy)
+    if (includeOwners) params.set('owners', '1')
+    if (working) params.set('working', '1')
+    if (recompute) params.set('recompute', '1')
+    window.open(`/api/reports/fy/pdf/?${params.toString()}`, '_blank')
+  }
 
   return (
     <>
@@ -127,8 +139,18 @@ export default function Reporting() {
               <option value="true">Yes</option>
             </select>
           </div>
+          <div>
+            <label>Show the working</label>
+            <select value={String(working)} onChange={(e) => setWorking(e.target.value === 'true')}>
+              <option value="true">Yes</option>
+              <option value="false">No</option>
+            </select>
+          </div>
           <button onClick={run} disabled={!selected}>
             Run report
+          </button>
+          <button className="ghost" onClick={exportPdf} disabled={!selected}>
+            Export PDF
           </button>
         </div>
       </div>
@@ -204,6 +226,39 @@ export default function Reporting() {
               </tfoot>
             </table>
 
+            {working && report.expenses.items.length ? (
+              <>
+                <h3>Expenses — working</h3>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Category</th>
+                      <th>Description</th>
+                      <th className="num">Amount</th>
+                      <th>Basis</th>
+                      <th className="num">Claimable</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.expenses.items.map((item, i) => (
+                      <tr key={i}>
+                        <td>{item.date}</td>
+                        <td>{item.category}</td>
+                        <td>{item.description || '—'}</td>
+                        <td className="num">{money(item.amount)}</td>
+                        <td>
+                          {item.apportionment}
+                          {item.working ? <div className="working">{item.working}</div> : null}
+                        </td>
+                        <td className="num">{money(item.deductible_amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            ) : null}
+
             {report.expenses.notes?.length ? (
               <p className="muted" style={{ marginTop: 8 }}>
                 Apportionment: {report.expenses.notes.join('; ')}
@@ -224,7 +279,10 @@ export default function Reporting() {
               <tbody>
                 {report.depreciation.lines.map((l, i) => (
                   <tr key={i}>
-                    <td>{l.asset}</td>
+                    <td>
+                      {l.asset}
+                      {working && l.working ? <div className="working">{l.working}</div> : null}
+                    </td>
                     <td>{l.method}</td>
                     <td className="num">{money(l.opening_value)}</td>
                     <td className="num">{pct(l.business_use_pct)}</td>

@@ -6,6 +6,7 @@ which suits a same-origin single-page app served by this Django project.
 import datetime as dt
 
 from django.contrib.auth import authenticate, login, logout
+from django.http import HttpResponse
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
@@ -15,7 +16,7 @@ from rest_framework.response import Response
 
 from . import coverage as coverage_lib
 from . import depreciation as depreciation_lib
-from . import fiscal, reports
+from . import fiscal, pdf, reports
 from .importers import airbnb_pdf
 from .models import (
     Asset,
@@ -349,6 +350,34 @@ def fy_report(request):
     if include_owners:
         payload["owners"] = owners
     return Response(payload)
+
+
+@api_view(["GET"])
+def fy_report_pdf(request):
+    """The same report as a downloadable PDF (honours owners + working flags)."""
+    prop = get_object_or_404(Property, pk=request.query_params.get("property"))
+    label = request.query_params.get("fy") or fiscal.fy_label(dt.date.today())
+    recompute = request.query_params.get("recompute") in ("1", "true", "yes")
+    include_owners = request.query_params.get("owners") in ("1", "true", "yes")
+    show_working = request.query_params.get("working") in ("1", "true", "yes")
+
+    report, owners = reports.owner_reports(prop, label, recompute)
+    try:
+        payload = pdf.render_report_pdf(
+            report, owners if include_owners else [], show_working=show_working
+        )
+    except pdf.PdfUnavailable as exc:
+        return Response(
+            {"detail": str(exc), "available": False},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    safe_name = "".join(c if c.isalnum() or c in "-_." else "-" for c in prop.name)
+    response = HttpResponse(payload, content_type="application/pdf")
+    response["Content-Disposition"] = (
+        f'attachment; filename="roost-{safe_name}-{label}.pdf"'
+    )
+    return response
 
 
 def _fy_options():

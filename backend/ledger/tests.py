@@ -8,6 +8,7 @@ from decimal import Decimal
 import datetime as dt
 import json
 import tempfile
+import unittest
 from pathlib import Path
 from unittest import mock
 
@@ -17,6 +18,7 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from . import apportionment, depreciation, reports
+from . import pdf as pdf_renderer
 from .coverage import coverage_for
 from .importers import airbnb_csv, airbnb_pdf
 from .models import (
@@ -36,6 +38,15 @@ from .models import (
     UtilityType,
 )
 from .services import asset_extract, bill_extract, expense_extract
+
+
+def _weasyprint_available():
+    try:
+        import weasyprint  # noqa: F401
+
+        return True
+    except Exception:  # pragma: no cover - environment dependent
+        return False
 
 SAMPLE_CSV = """Date,Type,Confirmation Code,Listing,Guest,Start Date,End Date,Nights,Gross Earnings,Cleaning Fee,Service Fee,Payout Date,Amount,Currency
 2026-01-05,Reservation,HMABC123,Seaside Shack,Jane Doe,2026-01-10,2026-01-14,4,900.00,120.00,135.00,2026-01-05,-885.00,AUD
@@ -858,6 +869,64 @@ class AreaNightsApportionmentTests(BaseLedgerTestCase):
         self._nights(73, label="FY2025-26", start="2025-10-01", end="2025-12-31")
         expense = self._expense()
         self.assertEqual(expense.deductible_amount, Decimal("100.00"))
+
+
+class ReportPdfTests(BaseLedgerTestCase):
+    """The FY report renders to HTML (and PDF when the renderer is present)."""
+
+    def setUp(self):
+        super().setUp()
+        airbnb_pdf.import_report(SAMPLE_REPORT_TEXT, self.listing)
+        cat = Category.objects.create(name="Electricity", kind=Category.KIND_UTILITY)
+        Expense.objects.create(
+            property=self.prop, category=cat, date="2026-03-01",
+            amount=Decimal("400.00"), apportionment=Category.APPORTION_AREA,
+        )
+        Asset.objects.create(
+            property=self.prop, name="Aircon", purchase_date="2025-08-01",
+            cost=Decimal("2000.00"), effective_life_years=Decimal("10.00"),
+            method=Asset.METHOD_DIMINISHING, business_use_pct=Decimal("0.2500"),
+        )
+
+    def test_html_renderer_includes_the_key_sections(self):
+        report, owners = reports.owner_reports(self.prop, "FY2025-26", True)
+        html = pdf_renderer.render_report_html(report, owners, show_working=True)
+        self.assertIn("Roost — rental report", html)
+        self.assertIn("FY2025-26", html)
+        self.assertIn("Net rental result", html)
+        self.assertIn("Expenses — working", html)
+        self.assertIn("opening", html)  # depreciation working text
+
+    def test_html_renderer_hides_working_when_asked(self):
+        report, owners = reports.owner_reports(self.prop, "FY2025-26", True)
+        html = pdf_renderer.render_report_html(report, owners, show_working=False)
+        self.assertNotIn("Expenses — working", html)
+
+    def test_working_text_explains_the_calculation(self):
+        report, _ = reports.owner_reports(self.prop, "FY2025-26", True)
+        item = report["expenses"]["items"][0]
+        self.assertIn("400.00", item["working"])
+        self.assertIn("25.00%", item["working"])
+        line = report["depreciation"]["lines"][0]
+        self.assertIn("365 days", line["working"])
+        self.assertIn("business use 25.00%", line["working"])
+
+    def test_pdf_endpoint_requires_login(self):
+        response = self.client.get(f"/api/reports/fy/pdf/?property={self.prop.id}")
+        self.assertIn(response.status_code, (401, 403))
+
+    @unittest.skipUnless(_weasyprint_available(), "weasyprint not installed")
+    def test_pdf_endpoint_returns_a_pdf(self):
+        user = User.objects.create_user("pdfuser", "p@example.com", "unused-pw")
+        client = APIClient()
+        client.force_login(user)
+        response = client.get(
+            f"/api/reports/fy/pdf/?property={self.prop.id}&fy=FY2025-26&owners=1&working=1"
+        )
+        self.assertEqual(response.status_code, 200, response.content[:200])
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertTrue(response.content.startswith(b"%PDF"))
+        self.assertIn("attachment", response["Content-Disposition"])
 
 
 class UtilityCoverageTests(BaseLedgerTestCase):

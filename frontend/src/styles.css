@@ -95,6 +95,7 @@ tfoot td { font-weight: 700; }
 .card { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; background: #fff; }
 .card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px #2f7d5d22; }
 .money { font-variant-numeric: tabular-nums; }
+.working { font-size: 12px; color: var(--muted); }
 .muted { color: var(--muted); }
 .totals { font-size: 16px; }
 .login { max-width: 360px; margin: 12vh auto; }

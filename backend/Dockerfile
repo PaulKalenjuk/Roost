@@ -14,11 +14,24 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-WORKDIR /app
-
+# libpq5            -> psycopg
+# pango/harfbuzz/cairo/gdk-pixbuf/ffi -> WeasyPrint (PDF export)
+# fonts-dejavu-core -> a real font for the generated PDFs
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libpq5 \
+ && apt-get install -y --no-install-recommends \
+      libpq5 \
+      libpango-1.0-0 \
+      libpangoft2-1.0-0 \
+      libharfbuzz0b \
+      libharfbuzz-subset0 \
+      libcairo2 \
+      libgdk-pixbuf-2.0-0 \
+      libffi8 \
+      shared-mime-info \
+      fonts-dejavu-core \
  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
 
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -27,7 +40,7 @@ COPY backend/ .
 COPY --from=frontend /backend/spa ./spa
 
 RUN chmod +x entrypoint.sh \
- && SECRET_KEY=collectstatic-only DB_ENGINE=sqlite python manage.py collectstatic --noinput
+ && SECRET_KEY=collec…only DB_ENGINE=sqlite python manage.py collectstatic --noinput
 
 EXPOSE 8000
 CMD ["./entrypoint.sh"]

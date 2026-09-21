@@ -86,6 +86,9 @@ def fy_expenses(property_obj, label):
         detail = apportionment.explain(exp)
         if detail and detail not in notes:
             notes.append(detail)
+        working = f"{_q(exp.amount)} × {share * 100:.2f}% = {_q(exp.deductible_amount)}"
+        if detail:
+            working += f" ({detail})"
         items.append(
             {
                 "date": exp.date,
@@ -96,6 +99,7 @@ def fy_expenses(property_obj, label):
                 "share": share,
                 "deductible_amount": _q(exp.deductible_amount),
                 "detail": detail,
+                "working": working,
             }
         )
         bucket = by_category.setdefault(
@@ -117,6 +121,26 @@ def fy_expenses(property_obj, label):
         "items": items,
         "notes": notes,
     }
+
+
+def _depreciation_working(entry):
+    """Plain-English calculation for one asset's FY deduction."""
+    asset = entry.asset
+    life = asset.effective_life_years
+    days = entry.days_held or 0
+    business = (asset.business_use_pct or 0) * 100
+    if asset.low_value_pool:
+        return (
+            f"low-value pool: opening {entry.opening_value} × business use "
+            f"{business:.2f}% = {entry.deduction}"
+        )
+    if asset.method == asset.METHOD_PRIME:
+        label = f"cost {asset.cost} ÷ {life or '—'} yrs"
+    else:
+        label = f"opening {entry.opening_value} × (1 ÷ {life or '—'} yrs)"
+    return (
+        f"{label} × {days}/365 days × business use {business:.2f}% = {entry.deduction}"
+    )
 
 
 def fy_depreciation(property_obj, label, recompute=False):
@@ -146,6 +170,7 @@ def fy_depreciation(property_obj, label, recompute=False):
                 "deduction": _q(entry.deduction),
                 "closing_value": _q(entry.closing_value),
                 "days_held": entry.days_held,
+                "working": _depreciation_working(entry),
             }
         )
         total += entry.deduction
