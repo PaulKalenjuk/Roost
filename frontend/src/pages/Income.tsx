@@ -20,6 +20,23 @@ export default function Income() {
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [summaries, setSummaries] = useState<EarningsSummary[]>([])
   const [nightsDraft, setNightsDraft] = useState<Record<number, string>>({})
+  const [manualFy, setManualFy] = useState('')
+  const [manualNights, setManualNights] = useState('')
+  const [manualAvg, setManualAvg] = useState('')
+
+  // Last six Australian financial years (1 Jul – 30 Jun), newest first.
+  const fyOptions = (() => {
+    const today = new Date()
+    const startYear = today.getMonth() >= 6 ? today.getFullYear() : today.getFullYear() - 1
+    return Array.from({ length: 6 }, (_, i) => {
+      const year = startYear - i
+      return {
+        label: `FY${year}-${String(year + 1).slice(2)}`,
+        start: `${year}-07-01`,
+        end: `${year + 1}-06-30`,
+      }
+    })
+  })()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -107,6 +124,65 @@ export default function Income() {
       if (listingId) await load(listingId)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
+    }
+  }
+
+  const saveManualNights = async () => {
+    if (!listingId) return
+    const option = fyOptions.find((o) => o.label === manualFy)
+    if (!option) {
+      setError('Pick a financial year.')
+      return
+    }
+    if (manualNights === '') {
+      setError('Enter the number of nights.')
+      return
+    }
+    setError('')
+    setNotice('')
+    const inFy = summaries.filter((s) => s.financial_year === option.label)
+    // Prefer an exact period match; fall back to a lone record for that year.
+    const target =
+      inFy.find((s) => s.period_start === option.start && s.period_end === option.end) ??
+      (inFy.length === 1 ? inFy[0] : undefined)
+    const payload = {
+      listing: listingId,
+      period_start: option.start,
+      period_end: option.end,
+      nights_booked: Number(manualNights),
+      avg_night_stay: manualAvg === '' ? null : manualAvg,
+    }
+    try {
+      if (target) {
+        await api(`/api/earnings-summaries/${target.id}/`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        })
+        setNotice(`Updated nights for ${option.label}.`)
+      } else {
+        await api('/api/earnings-summaries/', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+        setNotice(`Recorded ${manualNights} nights for ${option.label}.`)
+      }
+      setManualNights('')
+      setManualAvg('')
+      await load(listingId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    }
+  }
+
+  const deleteSummary = async (summary: EarningsSummary) => {
+    const when = `${summary.period_start ?? '?'} → ${summary.period_end ?? '?'}`
+    if (!window.confirm(`Delete the nights record for ${summary.financial_year || when}?`)) return
+    try {
+      await api(`/api/earnings-summaries/${summary.id}/`, { method: 'DELETE' })
+      if (listingId) await load(listingId)
+      setNotice('Nights record deleted.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed')
     }
   }
 
@@ -291,6 +367,13 @@ export default function Income() {
                               Save
                             </button>
                           ) : null}
+                          <button
+                            type="button"
+                            className="ghost small"
+                            onClick={() => deleteSummary(s)}
+                          >
+                            Delete
+                          </button>
                         </td>
                         <td className="num">{s.avg_night_stay ?? '—'}</td>
                         <td className="num">{money(s.gross_earnings)}</td>
@@ -304,12 +387,57 @@ export default function Income() {
                 <tbody>
                   <tr>
                     <td colSpan={6} className="muted">
-                      Nothing yet — import an earnings report above to record nights booked.
+                      Nothing yet — import an earnings report above, or add a year below.
                     </td>
                   </tr>
                 </tbody>
               ) : null}
             </table>
+
+            <h3>Add or correct a financial year</h3>
+            <div className="row">
+              <div>
+                <label>Financial year</label>
+                <select value={manualFy} onChange={(e) => setManualFy(e.target.value)}>
+                  <option value="">— select —</option>
+                  {fyOptions.map((o) => (
+                    <option key={o.label} value={o.label}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label>Nights booked</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={manualNights}
+                  onChange={(e) => setManualNights(e.target.value)}
+                />
+              </div>
+              <div>
+                <label>Avg night stay (optional)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={manualAvg}
+                  onChange={(e) => setManualAvg(e.target.value)}
+                />
+              </div>
+              <button
+                type="button"
+                className="ghost small"
+                onClick={saveManualNights}
+                disabled={!listingId}
+              >
+                Save nights
+              </button>
+            </div>
+            <div className="hint">
+              Works with or without an imported report — saving a year that already has a record
+              updates it instead of adding a second.
+            </div>
           </div>
 
           <div className="panel">

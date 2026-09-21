@@ -234,6 +234,31 @@ class AirbnbPdfImportTests(BaseLedgerTestCase):
         self.assertEqual(patched.status_code, 200, patched.content)
         self.assertEqual(EarningsSummary.objects.get().nights_booked, 149)
 
+    def test_manual_nights_entry_without_an_import(self):
+        """A financial year can be recorded by hand, with no PDF at all."""
+        user = User.objects.create_user("manual", "m@example.com", "unused-pw")
+        client = APIClient()
+        client.force_login(user)
+
+        response = client.post(
+            "/api/earnings-summaries/",
+            {
+                "listing": self.listing.id,
+                "period_start": "2025-07-01",
+                "period_end": "2026-06-30",
+                "nights_booked": 149,
+                "avg_night_stay": "4.10",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["financial_year"], "FY2025-26")
+
+        summary_id = response.json()["id"]
+        deleted = client.delete(f"/api/earnings-summaries/{summary_id}/")
+        self.assertEqual(deleted.status_code, 204)
+        self.assertFalse(EarningsSummary.objects.filter(pk=summary_id).exists())
+
     def test_import_creates_monthly_totals(self):
         batch = airbnb_pdf.import_report(SAMPLE_REPORT_TEXT, self.listing)
         self.assertEqual(batch.rows_created, 2)
