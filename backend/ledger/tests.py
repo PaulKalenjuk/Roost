@@ -668,6 +668,71 @@ class AssetImageAndDeleteTests(BaseLedgerTestCase):
         self.assertFalse(path.exists(), "receipt file was left on disk")
 
 
+class AdhocExpenseEditTests(BaseLedgerTestCase):
+    """Ad-hoc expenses can be edited and deleted; receipts go with them."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.mkdtemp()
+        override = override_settings(MEDIA_ROOT=self.tmp)
+        override.enable()
+        self.addCleanup(override.disable)
+        self.cat = Category.objects.create(name="Cleaning", kind=Category.KIND_OPERATING)
+        user = User.objects.create_user("expedit", "e@example.com", "unused-pw")
+        self.api = APIClient()
+        self.api.force_login(user)
+
+    def _expense(self, **kwargs):
+        defaults = dict(property=self.prop, category=self.cat, amount=Decimal("50.00"))
+        defaults.update(kwargs)
+        return Expense.objects.create(**defaults)
+
+    def test_patch_updates_fields(self):
+        expense = self._expense()
+        response = self.api.patch(
+            f"/api/expenses/{expense.id}/",
+            {"amount": "75.50", "vendor": "Woolworths", "apportionment": "area"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        expense.refresh_from_db()
+        self.assertEqual(expense.amount, Decimal("75.50"))
+        self.assertEqual(expense.vendor, "Woolworths")
+        # 25% let share of the 200/50 m2 property
+        self.assertEqual(expense.deductible_amount, Decimal("18.88"))
+
+    def test_patch_clears_custom_percentage(self):
+        expense = self._expense(
+            apportionment=Category.APPORTION_CUSTOM,
+            apportionment_pct=Decimal("0.4000"),
+        )
+        self.assertEqual(expense.deductible_amount, Decimal("20.00"))
+        response = self.api.patch(
+            f"/api/expenses/{expense.id}/",
+            {"apportionment": "none", "apportionment_pct": None},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        expense.refresh_from_db()
+        self.assertIsNone(expense.apportionment_pct)
+        self.assertEqual(expense.deductible_amount, Decimal("50.00"))
+
+    def test_delete_expense_removes_receipts_and_files(self):
+        expense = self._expense()
+        receipt = Receipt.objects.create(
+            property=self.prop, expense=expense, original_name="r.pdf",
+            file=SimpleUploadedFile("r.pdf", b"%PDF-1.4 fake"),
+        )
+        path = Path(self.tmp) / receipt.file.name
+        self.assertTrue(path.exists())
+
+        response = self.api.delete(f"/api/expenses/{expense.id}/")
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Expense.objects.filter(pk=expense.pk).exists())
+        self.assertFalse(Receipt.objects.filter(pk=receipt.pk).exists())
+        self.assertFalse(path.exists(), "receipt file was left on disk")
+
+
 class UtilityCoverageTests(BaseLedgerTestCase):
     """Coverage windows: what is billed, and where the gaps are."""
 

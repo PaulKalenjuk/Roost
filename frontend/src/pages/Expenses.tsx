@@ -53,6 +53,7 @@ function AdhocExpenses() {
   const [notice, setNotice] = useState('')
   const receiptFileRef = useRef<HTMLInputElement>(null)
   const [reading, setReading] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
   const [form, setForm] = useState({
     category: '',
     date: new Date().toISOString().slice(0, 10),
@@ -123,6 +124,53 @@ function AdhocExpenses() {
     }
   }
 
+  const resetForm = () => {
+    setEditingId(null)
+    setForm({
+      category: '',
+      date: new Date().toISOString().slice(0, 10),
+      vendor: '',
+      description: '',
+      amount: '',
+      gst_amount: '',
+      apportionment: 'none',
+      apportionment_pct: '',
+      paid: true,
+    })
+    if (receiptFileRef.current) receiptFileRef.current.value = ''
+  }
+
+  const startEdit = (exp: Expense) => {
+    setEditingId(exp.id)
+    setForm({
+      category: String(exp.category),
+      date: exp.date ?? '',
+      vendor: exp.vendor ?? '',
+      description: exp.description ?? '',
+      amount: exp.amount ?? '',
+      gst_amount: exp.gst_amount ?? '',
+      apportionment: exp.apportionment,
+      apportionment_pct: exp.apportionment_pct ?? '',
+      paid: exp.paid,
+    })
+    if (receiptFileRef.current) receiptFileRef.current.value = ''
+    setError('')
+    setNotice(`Editing a ${money(exp.amount)} expense — change what you need, then Save changes.`)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const deleteExpense = async (exp: Expense) => {
+    if (!window.confirm(`Delete the ${exp.category_name} expense of ${money(exp.amount)}?`)) return
+    try {
+      await api(`/api/expenses/${exp.id}/`, { method: 'DELETE' })
+      if (editingId === exp.id) resetForm()
+      await load()
+      setNotice('Expense deleted.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed')
+    }
+  }
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selected) return
@@ -138,30 +186,48 @@ function AdhocExpenses() {
       amount: form.amount || '0',
       gst_amount: form.gst_amount || '0',
       apportionment: form.apportionment,
+      apportionment_pct:
+        form.apportionment === 'custom' ? form.apportionment_pct || '0' : null,
       paid: form.paid,
     }
-    if (form.apportionment === 'custom') payload.apportionment_pct = form.apportionment_pct || '0'
     if (!form.category) {
       setError('Pick a category (create one under the Utilities tab if needed).')
       return
     }
     try {
-      const created = await api<Expense>('/api/expenses/', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      })
+      let expenseId: number
+      if (editingId) {
+        const updated = await api<Expense>(`/api/expenses/${editingId}/`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        })
+        expenseId = updated.id
+      } else {
+        const created = await api<Expense>('/api/expenses/', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+        expenseId = created.id
+      }
       const receipt = receiptFileRef.current?.files?.[0]
       if (receipt) {
         const receiptBody = new FormData()
         receiptBody.append('file', receipt)
         receiptBody.append('property', String(selected.id))
-        receiptBody.append('expense', String(created.id))
+        receiptBody.append('expense', String(expenseId))
         receiptBody.append('original_name', receipt.name)
         await api('/api/receipts/', { method: 'POST', body: receiptBody })
         if (receiptFileRef.current) receiptFileRef.current.value = ''
       }
-      setForm({ ...form, vendor: '', description: '', amount: '', gst_amount: '' })
-      setNotice(receipt ? 'Expense added with its receipt attached.' : 'Expense added.')
+      const wasEditing = Boolean(editingId)
+      resetForm()
+      setNotice(
+        wasEditing
+          ? 'Expense updated.'
+          : receipt
+            ? 'Expense added with its receipt attached.'
+            : 'Expense added.',
+      )
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
@@ -173,7 +239,7 @@ function AdhocExpenses() {
       {!selected ? <Alert kind="info">Create a property first.</Alert> : null}
 
       <form className="panel" onSubmit={save}>
-        <h2>Add an ad hoc expense</h2>
+        <h2>{editingId ? 'Edit ad hoc expense' : 'Add an ad hoc expense'}</h2>
         <div className="grid">
           <Field label="Category">
             <CategoryPicker
@@ -248,7 +314,14 @@ function AdhocExpenses() {
         ) : null}
 
         <div style={{ height: 12 }} />
-        <button disabled={!selected}>Add expense</button>
+        <div className="row">
+          <button disabled={!selected}>{editingId ? 'Save changes' : 'Add expense'}</button>
+          {editingId ? (
+            <button type="button" className="ghost" onClick={resetForm}>
+              Cancel
+            </button>
+          ) : null}
+        </div>
         {notice ? <Alert kind="ok">{notice}</Alert> : null}
         {error ? <Alert kind="err">{error}</Alert> : null}
       </form>
@@ -265,11 +338,12 @@ function AdhocExpenses() {
               <th>Apportionment</th>
               <th className="num">Claimable</th>
               <th>Receipt</th>
+              <th />
             </tr>
           </thead>
           <tbody>
             {items.map((e) => (
-              <tr key={e.id}>
+              <tr key={e.id} className={e.id === editingId ? 'selected-row' : ''}>
                 <td>{e.date}</td>
                 <td>{e.category_name}</td>
                 <td>{e.description || e.vendor || '—'}</td>
@@ -279,11 +353,21 @@ function AdhocExpenses() {
                 <td>
                   <ReceiptCell expense={e} onUploaded={load} />
                 </td>
+                <td>
+                  <div className="row">
+                    <button type="button" className="ghost small" onClick={() => startEdit(e)}>
+                      Edit
+                    </button>
+                    <button type="button" className="ghost small" onClick={() => deleteExpense(e)}>
+                      Delete
+                    </button>
+                  </div>
+                </td>
               </tr>
             ))}
             {items.length === 0 ? (
               <tr>
-                <td colSpan={7} className="muted">
+                <td colSpan={8} className="muted">
                   Nothing yet.
                 </td>
               </tr>

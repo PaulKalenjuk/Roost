@@ -518,6 +518,13 @@ class Expense(TimestampedModel):
         self.deductible_amount = (amount * share).quantize(Decimal("0.01"))
         super().save(*args, **kwargs)
 
+    def delete(self, *args, **kwargs):
+        """Remove the expense's receipts too (``Receipt.expense`` is SET_NULL, so
+        they'd otherwise be orphaned rows pointing at nothing)."""
+        for receipt in list(self.receipts.all()):
+            receipt.delete()
+        return super().delete(*args, **kwargs)
+
     def __str__(self):
         return f"{self.date} · {self.category} · {self.amount}"
 
@@ -880,4 +887,11 @@ def _delete_expense_with_bill(sender, instance, **kwargs):
 def _delete_receipts_with_asset(sender, instance, **kwargs):
     """Cascade-safe cleanup: an asset's receipts go with it."""
     for receipt in list(Receipt.objects.filter(asset=instance)):
+        receipt.delete()
+
+
+@receiver(post_delete, sender=Expense)
+def _delete_receipts_with_expense(sender, instance, **kwargs):
+    """Cascade-safe cleanup: an expense's receipts go with it."""
+    for receipt in list(Receipt.objects.filter(expense=instance)):
         receipt.delete()
