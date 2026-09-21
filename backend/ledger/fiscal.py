@@ -46,6 +46,12 @@ def fy_end_date(date_obj):
     return fy_bounds(fy_label(date_obj))[1]
 
 
+def fy_days(label):
+    """Number of days in an FY (365, or 366 in a leap year)."""
+    start, end = fy_bounds(label)
+    return (end - start).days + 1
+
+
 def days_held_in_fy(start: dt.date, end: dt.date, label: str):
     """Number of days in FY ``label`` between ``start`` and ``end`` inclusive."""
     fy_start, fy_end = fy_bounds(label)

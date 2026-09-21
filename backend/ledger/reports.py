@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from django.db.models import Sum
 
-from . import fiscal
+from . import apportionment, fiscal
 from .models import Asset, DepreciationEntry, Expense, MonthlyEarnings, Reservation
 
 CENTS = Decimal("0.01")
@@ -77,11 +77,15 @@ def fy_expenses(property_obj, label):
 
     by_category = {}
     items = []
+    notes = []
     total_amount = ZERO
     total_deductible = ZERO
     for exp in qs:
         share = exp.compute_apportionment_pct()
         share = share if share is not None else Decimal("1")
+        detail = apportionment.explain(exp)
+        if detail and detail not in notes:
+            notes.append(detail)
         items.append(
             {
                 "date": exp.date,
@@ -91,6 +95,7 @@ def fy_expenses(property_obj, label):
                 "apportionment": exp.get_apportionment_display(),
                 "share": share,
                 "deductible_amount": _q(exp.deductible_amount),
+                "detail": detail,
             }
         )
         bucket = by_category.setdefault(
@@ -110,6 +115,7 @@ def fy_expenses(property_obj, label):
         "total_deductible": _q(total_deductible),
         "by_category": by_category,
         "items": items,
+        "notes": notes,
     }
 
 
@@ -247,6 +253,8 @@ def format_report(report):
     for name, v in sorted(exp["by_category"].items()):
         lines.append(f"  {name:<28} amount {v['amount']:>10}  claimable {v['deductible']:>10}")
     lines.append(f"  {'TOTAL CLAIMABLE':<28} {'':>17}  claimable {exp['total_deductible']:>10}")
+    for note in exp.get("notes", []):
+        lines.append(f"  apportionment: {note}")
     lines.append("")
 
     dep = report["depreciation"]

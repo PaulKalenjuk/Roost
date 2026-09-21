@@ -18,6 +18,7 @@ import { useProperties } from '../store'
 const APPORTION_LABELS: Record<string, string> = {
   none: 'Fully deductible',
   area: 'By floor area of the let',
+  area_nights: 'By floor area × nights booked',
   custom: 'Custom %',
 }
 
@@ -269,6 +270,7 @@ function AdhocExpenses() {
             <select value={form.apportionment} onChange={(e) => setForm({ ...form, apportionment: e.target.value })}>
               <option value="none">Fully deductible</option>
               <option value="area">By floor area of the let</option>
+              <option value="area_nights">By floor area × nights booked</option>
               <option value="custom">Custom %</option>
             </select>
           </Field>
@@ -824,6 +826,7 @@ function Utilities() {
             <label>Apportionment</label>
             <select value={newType.apportionment} onChange={(e) => setNewType({ ...newType, apportionment: e.target.value })}>
               <option value="area">By floor area of the let</option>
+              <option value="area_nights">By floor area × nights booked</option>
               <option value="none">Fully deductible</option>
             </select>
           </div>

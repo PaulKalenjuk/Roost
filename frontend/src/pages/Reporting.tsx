@@ -31,7 +31,8 @@ interface Report {
     total_amount: Num
     total_deductible: Num
     by_category: Record<string, { amount: Num; deductible: Num }>
-    items: Array<{ date: string; category: string; description: string; amount: Num; apportionment: string; share: Num; deductible_amount: Num }>
+    notes?: string[]
+    items: Array<{ date: string; category: string; description: string; amount: Num; apportionment: string; share: Num; deductible_amount: Num; detail?: string }>
   }
   depreciation: {
     total_deduction: Num
@@ -202,6 +203,12 @@ export default function Reporting() {
                 </tr>
               </tfoot>
             </table>
+
+            {report.expenses.notes?.length ? (
+              <p className="muted" style={{ marginTop: 8 }}>
+                Apportionment: {report.expenses.notes.join('; ')}
+              </p>
+            ) : null}
 
             <h3>Depreciation</h3>
             <table>

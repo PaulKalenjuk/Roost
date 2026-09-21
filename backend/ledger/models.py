@@ -249,17 +249,19 @@ class Category(TimestampedModel):
 
     APPORTION_NONE = "none"
     APPORTION_AREA = "area"
+    APPORTION_AREA_NIGHTS = "area_nights"
     APPORTION_CUSTOM = "custom"
     APPORTION_CHOICES = [
         (APPORTION_NONE, "No apportionment (100% deductible)"),
         (APPORTION_AREA, "By floor area of the let"),
+        (APPORTION_AREA_NIGHTS, "By floor area × nights booked"),
         (APPORTION_CUSTOM, "Custom percentage"),
     ]
 
     name = models.CharField(max_length=120, unique=True)
     kind = models.CharField(max_length=20, choices=KIND_CHOICES, default=KIND_OPERATING)
     default_apportionment = models.CharField(
-        max_length=10, choices=APPORTION_CHOICES, default=APPORTION_NONE
+        max_length=20, choices=APPORTION_CHOICES, default=APPORTION_NONE
     )
     details = models.CharField(
         max_length=255,
@@ -449,6 +451,7 @@ class Expense(TimestampedModel):
 
     APPORTION_NONE = Category.APPORTION_NONE
     APPORTION_AREA = Category.APPORTION_AREA
+    APPORTION_AREA_NIGHTS = Category.APPORTION_AREA_NIGHTS
     APPORTION_CUSTOM = Category.APPORTION_CUSTOM
     APPORTION_CHOICES = Category.APPORTION_CHOICES
 
@@ -505,7 +508,7 @@ class Expense(TimestampedModel):
     )
 
     apportionment = models.CharField(
-        max_length=10, choices=APPORTION_CHOICES, default=APPORTION_NONE
+        max_length=20, choices=APPORTION_CHOICES, default=APPORTION_NONE
     )
     apportionment_pct = models.DecimalField(
         max_digits=6,
@@ -817,10 +820,10 @@ class UtilityType(TimestampedModel):
         ),
     )
     apportionment = models.CharField(
-        max_length=10,
+        max_length=20,
         choices=Category.APPORTION_CHOICES,
         default=Category.APPORTION_AREA,
-        help_text="How the claimable portion is worked out (usually by floor area).",
+        help_text="How the claimable portion is worked out (by floor area, or floor area × nights booked).",
     )
     notes = models.TextField(blank=True)
 

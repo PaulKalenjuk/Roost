@@ -16,7 +16,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
-from . import depreciation, reports
+from . import apportionment, depreciation, reports
 from .coverage import coverage_for
 from .importers import airbnb_csv, airbnb_pdf
 from .models import (
@@ -793,6 +793,71 @@ class AdhocExpenseEditTests(BaseLedgerTestCase):
         self.assertFalse(Expense.objects.filter(pk=expense.pk).exists())
         self.assertFalse(Receipt.objects.filter(pk=receipt.pk).exists())
         self.assertFalse(path.exists(), "receipt file was left on disk")
+
+
+class AreaNightsApportionmentTests(BaseLedgerTestCase):
+    """'By floor area × nights booked' — area share scaled by occupancy."""
+
+    def setUp(self):
+        super().setUp()
+        # 56/281-style property: 50 m² of 200 m² => 25% area share.
+        self.prop.total_floor_area_sqm = Decimal("200.00")
+        self.prop.rental_floor_area_sqm = Decimal("50.00")
+        self.prop.save()
+        self.cat = Category.objects.create(name="Electricity", kind=Category.KIND_UTILITY)
+
+    def _expense(self, amount="1000.00", date="2026-03-01"):
+        return Expense.objects.create(
+            property=self.prop, category=self.cat, date=date, amount=Decimal(amount),
+            apportionment=Category.APPORTION_AREA_NIGHTS,
+        )
+
+    def _nights(self, nights, label="FY2025-26", start="2025-07-01", end="2026-06-30"):
+        EarningsSummary.objects.create(
+            listing=self.listing, financial_year=label,
+            period_start=dt.date.fromisoformat(start),
+            period_end=dt.date.fromisoformat(end), nights_booked=nights,
+        )
+
+    def test_area_times_nights(self):
+        # FY2025-26 has 365 days; 146 nights => 40% occupancy.
+        self._nights(146)
+        expense = self._expense()
+        # 25% area × 40% nights = 10% => 100.00 of 1000.00
+        self.assertEqual(expense.deductible_amount, Decimal("100.00"))
+
+    def test_falls_back_to_area_when_no_nights_recorded(self):
+        expense = self._expense()
+        # 25% area only => 250.00
+        self.assertEqual(expense.deductible_amount, Decimal("250.00"))
+
+    def test_nights_are_capped_at_the_whole_year(self):
+        self._nights(500)  # more nights than days in the year
+        expense = self._expense()
+        self.assertEqual(expense.deductible_amount, Decimal("250.00"))
+
+    def test_uses_the_expense_date_financial_year(self):
+        self._nights(73, label="FY2025-26", start="2025-07-01", end="2026-06-30")
+        # 73/365 => 20% occupancy in FY2025-26
+        in_fy = self._expense(date="2026-03-01")
+        self.assertEqual(in_fy.deductible_amount, Decimal("50.00"))
+        # An expense dated in FY2026-27 has no nights recorded => area only.
+        next_fy = self._expense(date="2026-09-01")
+        self.assertEqual(next_fy.deductible_amount, Decimal("250.00"))
+
+    def test_explanation_matches_the_maths(self):
+        self._nights(146)
+        expense = self._expense()
+        text = apportionment.explain(expense)
+        self.assertIn("25.00% area", text)
+        self.assertIn("40.00% nights", text)
+        self.assertIn("10.00%", text)
+
+    def test_monthly_summaries_are_summed(self):
+        self._nights(73, label="FY2025-26", start="2025-07-01", end="2025-09-30")
+        self._nights(73, label="FY2025-26", start="2025-10-01", end="2025-12-31")
+        expense = self._expense()
+        self.assertEqual(expense.deductible_amount, Decimal("100.00"))
 
 
 class UtilityCoverageTests(BaseLedgerTestCase):
