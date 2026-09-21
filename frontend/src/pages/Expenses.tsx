@@ -5,12 +5,13 @@ import {
   money,
   type BillExtraction,
   type Category,
+  type Coverage,
   type Expense,
   type Receipt,
   type UtilityBill,
   type UtilityType,
 } from '../api'
-import { Alert, CategoryPicker, Field } from '../components'
+import { Alert, CategoryPicker, CoverageBar, CoverageCell, Field } from '../components'
 import { useProperties } from '../store'
 
 const APPORTION_LABELS: Record<string, string> = {
@@ -272,6 +273,9 @@ function Utilities() {
   const [notice, setNotice] = useState('')
   const billFile = useRef<File | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const billFormRef = useRef<HTMLFormElement>(null)
+  const [coverage, setCoverage] = useState<Coverage[]>([])
+  const [covStart, setCovStart] = useState('')
 
   const [newType, setNewType] = useState({
     name: '',
@@ -305,12 +309,22 @@ function Utilities() {
 
   const loadCategories = async () => setCategories(await fetchList<Category>('/api/categories/'))
 
+  const loadCoverage = async () => {
+    if (!selected) return
+    const data = await api<{ coverage: Coverage[] }>(
+      `/api/utilities/coverage/?property=${selected.id}`,
+    )
+    setCoverage(data.coverage)
+  }
+  const covFor = (id: number) => coverage.find((c) => c.utility_type === id)
+
   useEffect(() => {
     loadCategories()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   useEffect(() => {
     loadTypes()
+    loadCoverage()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id])
   useEffect(() => {
@@ -329,6 +343,7 @@ function Utilities() {
     })
     setNewType({ ...newType, name: '', supplier: '' })
     await loadTypes()
+    await loadCoverage()
   }
 
   const readWithAI = async () => {
@@ -387,10 +402,36 @@ function Utilities() {
       billFile.current = null
       if (fileRef.current) fileRef.current.value = ''
       await loadBills(typeId)
+      await loadCoverage()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
     }
   }
+
+  const prefillGap = (start: string, end: string) => {
+    setBill((prev) => ({ ...prev, period_start: start, period_end: end, bill_date: end }))
+    setNotice(`Period prefilled (${start} → ${end}). Add the amount, then save.`)
+    billFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  const saveCoverageStart = async (id: number) => {
+    if (!covStart) {
+      setError('Pick a date to track this utility from.')
+      return
+    }
+    try {
+      await api(`/api/utility-types/${id}/`, {
+        method: 'PATCH',
+        body: JSON.stringify({ coverage_start: covStart }),
+      })
+      await loadCoverage()
+      setNotice('Coverage start saved.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    }
+  }
+
+  const focused = covFor(typeId ?? -1)
 
   const claimTotal = bills.reduce((s, b) => s + Number(b.claimable_amount ?? 0), 0)
   const amountTotal = bills.reduce((s, b) => s + Number(b.amount), 0)
@@ -415,21 +456,30 @@ function Utilities() {
               <th>Frequency</th>
               <th>Supplier</th>
               <th>Apportionment</th>
+              <th>Coverage</th>
             </tr>
           </thead>
           <tbody>
             {types.map((t) => (
-              <tr key={t.id}>
+              <tr
+                key={t.id}
+                className={t.id === typeId ? 'selected-row' : ''}
+                style={{ cursor: 'pointer' }}
+                onClick={() => setTypeId(t.id)}
+              >
                 <td>{t.name}</td>
                 <td>{t.category_name}</td>
                 <td>{t.frequency}</td>
                 <td>{t.supplier || '—'}</td>
                 <td>{APPORTION_LABELS[t.apportionment] ?? t.apportionment}</td>
+                <td>
+                  <CoverageCell cov={covFor(t.id)} />
+                </td>
               </tr>
             ))}
             {types.length === 0 ? (
               <tr>
-                <td colSpan={5} className="muted">
+                <td colSpan={6} className="muted">
                   No utility types yet.
                 </td>
               </tr>
@@ -485,7 +535,104 @@ function Utilities() {
         </p>
       </div>
 
-      <form className="panel" onSubmit={addBill}>
+      {focused ? (
+        <div className="panel">
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <h2 style={{ margin: 0 }}>Coverage focus — {focused.name}</h2>
+            <span className="muted">
+              {focused.frequency_label} · {focused.bills} bill(s)
+            </span>
+          </div>
+
+          {focused.computable ? (
+            <>
+              <CoverageBar coverage={focused} />
+              <div className="row" style={{ marginTop: 12, gap: 16 }}>
+                <span className={`badge ${focused.gaps.length ? 'warn' : 'ok'}`}>
+                  {focused.coverage_pct.toFixed(1)}% covered
+                </span>
+                <span className="muted">
+                  {focused.covered_days} of {focused.total_days} days
+                </span>
+                {focused.gaps.length ? (
+                  <span className="badge err">
+                    {focused.gaps.length} gap{focused.gaps.length > 1 ? 's' : ''} · {focused.gap_days} days
+                  </span>
+                ) : null}
+                {focused.bills_missing_period ? (
+                  <span className="badge warn">
+                    {focused.bills_missing_period} bill(s) without a period
+                  </span>
+                ) : null}
+                {focused.overlaps ? (
+                  <span className="badge warn">{focused.overlaps} overlapping bill(s)</span>
+                ) : null}
+              </div>
+
+              {focused.gaps.length ? (
+                <>
+                  <h3>Uncovered periods</h3>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>From</th>
+                        <th>To</th>
+                        <th className="num">Days</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {focused.gaps.map((g, i) => (
+                        <tr key={i}>
+                          <td>{g.start}</td>
+                          <td>{g.end}</td>
+                          <td className="num">{g.days}</td>
+                          <td>
+                            <button
+                              type="button"
+                              className="ghost small"
+                              onClick={() => prefillGap(g.start, g.end)}
+                            >
+                              Add bill for this gap
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              ) : (
+                <p className="muted" style={{ marginTop: 12 }}>
+                  Every day since {focused.start} is covered.
+                </p>
+              )}
+            </>
+          ) : (
+            <div>
+              <Alert kind="info">{focused.reason}</Alert>
+              <div className="row">
+                <div>
+                  <label>Track {focused.name} from</label>
+                  <input
+                    type="date"
+                    value={covStart}
+                    onChange={(e) => setCovStart(e.target.value)}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="small"
+                  onClick={() => saveCoverageStart(focused.utility_type)}
+                >
+                  Save start date
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      <form className="panel" onSubmit={addBill} ref={billFormRef}>
         <h2>Add a bill</h2>
         <div className="row">
           <div>

@@ -13,6 +13,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
+from . import coverage as coverage_lib
 from . import depreciation as depreciation_lib
 from . import fiscal, reports
 from .importers import airbnb_pdf
@@ -148,6 +149,10 @@ class UtilityTypeViewSet(viewsets.ModelViewSet):
         prop = self.request.query_params.get("property")
         return qs.filter(property_id=prop) if prop else qs
 
+    @action(detail=True, methods=["get"], url_path="coverage")
+    def coverage(self, request, pk=None):
+        return Response(coverage_lib.coverage_for(self.get_object()))
+
 
 class UtilityBillViewSet(viewsets.ModelViewSet):
     serializer_class = UtilityBillSerializer
@@ -228,6 +233,23 @@ def import_income_pdf(request):
     listing = get_object_or_404(Listing, pk=listing_id)
     batch = airbnb_pdf.import_report(upload, listing, filename=upload.name)
     return Response(ImportBatchSerializer(batch).data, status=201)
+
+
+@api_view(["GET"])
+def utilities_coverage(request):
+    """Coverage summary for every utility type on a property."""
+    prop_id = request.query_params.get("property")
+    if not prop_id:
+        return Response({"detail": "property is required."}, status=400)
+    prop = get_object_or_404(Property, pk=prop_id)
+    today = dt.date.today()
+    return Response({
+        "today": today.isoformat(),
+        "coverage": [
+            coverage_lib.coverage_for(ut, today)
+            for ut in prop.utility_types.select_related("property").order_by("name")
+        ],
+    })
 
 
 @api_view(["POST"])

@@ -26,6 +26,7 @@ urlpatterns = [
     path("auth/me/", api.me, name="api-me"),
     path("income/import-pdf/", api.import_income_pdf, name="api-income-import-pdf"),
     path("utilities/extract/", api.extract_bill, name="api-utility-extract"),
+    path("utilities/coverage/", api.utilities_coverage, name="api-utilities-coverage"),
     path("reports/fy/", api.fy_report, name="api-fy-report"),
     path("", include(router.urls)),
 ]

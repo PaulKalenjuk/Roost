@@ -99,3 +99,10 @@ tfoot td { font-weight: 700; }
 .totals { font-size: 16px; }
 .login { max-width: 360px; margin: 12vh auto; }
 .owner-row { display: grid; grid-template-columns: 2fr 1fr auto; gap: 8px; align-items: end; margin-bottom: 8px; }
+
+/* Coverage timeline */
+.covbar { display: flex; height: 20px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: #fff; }
+.covseg { height: 100%; }
+.covseg.covered { background: var(--accent); }
+.covseg.gap { background: repeating-linear-gradient(45deg, #f3b0ad, #f3b0ad 6px, #f8cbc9 6px, #f8cbc9 12px); }
+tr.selected-row { background: #f2f8f5; }

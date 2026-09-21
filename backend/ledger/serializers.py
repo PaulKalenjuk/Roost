@@ -159,7 +159,7 @@ class UtilityTypeSerializer(BaseSerializer):
     class Meta:
         model = UtilityType
         fields = ["id", "property", "name", "category", "category_name",
-                  "frequency", "supplier", "apportionment", "notes"]
+                  "frequency", "supplier", "apportionment", "coverage_start", "notes"]
 
 
 class UtilityBillSerializer(BaseSerializer):

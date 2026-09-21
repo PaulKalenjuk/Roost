@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { api, type Category } from './api'
+import { api, type Category, type Coverage } from './api'
 import { useProperties } from './store'
 
 export function Alert({ kind, children }: { kind: 'ok' | 'err' | 'info'; children: ReactNode }) {
@@ -48,6 +48,51 @@ export function PropertyPicker() {
 
 export function Loading({ what = 'data' }: { what?: string }) {
   return <p className="muted">Loading {what}…</p>
+}
+
+/** Proportional strip showing covered (green) vs uncovered (red) periods. */
+export function CoverageBar({ coverage }: { coverage: Coverage }) {
+  if (!coverage.computable) return null
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div className="covbar">
+        {coverage.segments.map((s, i) => (
+          <div
+            key={i}
+            className={`covseg ${s.kind === 'covered' ? 'covered' : 'gap'}`}
+            style={{ width: `${s.width_pct}%` }}
+            title={`${s.kind === 'covered' ? 'Covered' : 'Uncovered'}: ${s.start} → ${s.end} (${s.days} days)`}
+          />
+        ))}
+      </div>
+      <div className="row" style={{ justifyContent: 'space-between', fontSize: 12 }}>
+        <span className="muted">{coverage.start}</span>
+        <span className="muted">{coverage.end}</span>
+      </div>
+    </div>
+  )
+}
+
+/** Compact badge for the utility-types table. */
+export function CoverageCell({ cov }: { cov?: Coverage }) {
+  if (!cov) return <span className="muted">—</span>
+  if (!cov.computable) {
+    return (
+      <span className="badge warn" title={cov.reason ?? ''}>
+        set dates
+      </span>
+    )
+  }
+  const ok = cov.gaps.length === 0
+  return (
+    <span
+      className={`badge ${ok ? 'ok' : 'warn'}`}
+      title={`${cov.covered_days} of ${cov.total_days} days covered`}
+    >
+      {cov.coverage_pct.toFixed(0)}%
+      {ok ? '' : ` · ${cov.gaps.length} gap${cov.gaps.length > 1 ? 's' : ''}`}
+    </span>
+  )
 }
 
 const CATEGORY_KINDS = [

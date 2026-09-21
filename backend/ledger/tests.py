@@ -5,6 +5,7 @@ Run with::
     DB_ENGINE=sqlite python manage.py test ledger
 """
 from decimal import Decimal
+import datetime as dt
 import tempfile
 from pathlib import Path
 from unittest import mock
@@ -14,6 +15,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
 from . import depreciation, reports
+from .coverage import coverage_for
 from .importers import airbnb_csv, airbnb_pdf
 from .models import (
     Asset,
@@ -429,3 +431,81 @@ class ReceiptUploadTests(BaseLedgerTestCase):
         receipt = self._upload()
         response = self.client.get("/media/" + receipt.file.name)
         self.assertEqual(response.status_code, 200)
+
+
+class UtilityCoverageTests(BaseLedgerTestCase):
+    """Coverage windows: what is billed, and where the gaps are."""
+
+    def setUp(self):
+        super().setUp()
+        self.prop.purchase_date = dt.date(2025, 7, 1)
+        self.prop.save()
+        cat = Category.objects.create(name="Electricity", kind=Category.KIND_UTILITY)
+        self.ut = UtilityType.objects.create(
+            property=self.prop, name="Electricity", category=cat,
+            frequency=UtilityType.FREQ_QUARTERLY,
+        )
+
+    def _bill(self, start, end, amount="100.00"):
+        return UtilityBill.objects.create(
+            utility_type=self.ut, bill_date=end,
+            period_start=dt.date.fromisoformat(start),
+            period_end=dt.date.fromisoformat(end),
+            amount=amount,
+        )
+
+    def test_full_coverage_has_no_gaps(self):
+        self._bill("2025-07-01", "2025-09-30")
+        self._bill("2025-10-01", "2025-12-31")
+        result = coverage_for(self.ut, today=dt.date(2025, 12, 31))
+        self.assertTrue(result["computable"])
+        self.assertEqual(result["gaps"], [])
+        self.assertEqual(result["coverage_pct"], 100.0)
+        self.assertEqual(result["covered_days"], result["total_days"])
+
+    def test_gap_is_detected(self):
+        self._bill("2025-07-01", "2025-09-30")
+        self._bill("2025-10-01", "2025-12-31")
+        result = coverage_for(self.ut, today=dt.date(2026, 1, 31))
+        self.assertEqual(len(result["gaps"]), 1)
+        self.assertEqual(result["gaps"][0]["start"], "2026-01-01")
+        self.assertEqual(result["gaps"][0]["end"], "2026-01-31")
+        self.assertEqual(result["gaps"][0]["days"], 31)
+        self.assertLess(result["coverage_pct"], 100.0)
+
+    def test_overlapping_bills_counted(self):
+        self._bill("2025-07-01", "2025-09-30")
+        self._bill("2025-09-01", "2025-11-30")
+        result = coverage_for(self.ut, today=dt.date(2025, 11, 30))
+        self.assertEqual(result["overlaps"], 1)
+
+    def test_bill_without_period_is_flagged(self):
+        UtilityBill.objects.create(utility_type=self.ut, bill_date=dt.date(2025, 8, 1), amount="50.00")
+        result = coverage_for(self.ut, today=dt.date(2025, 12, 31))
+        self.assertEqual(result["bills_missing_period"], 1)
+        self.assertEqual(result["coverage_pct"], 0.0)
+
+    def test_not_computable_without_a_start_date(self):
+        self.prop.purchase_date = None
+        self.prop.save()
+        result = coverage_for(self.ut)
+        self.assertFalse(result["computable"])
+        self.assertIn("purchase date", result["reason"])
+
+    def test_coverage_start_overrides_purchase_date(self):
+        self.ut.coverage_start = dt.date(2025, 10, 1)
+        self.ut.save()
+        self._bill("2025-10-01", "2025-12-31")
+        result = coverage_for(self.ut, today=dt.date(2025, 12, 31))
+        self.assertEqual(result["start"], "2025-10-01")
+        self.assertEqual(result["coverage_pct"], 100.0)
+
+    def test_coverage_api(self):
+        self._bill("2025-07-01", "2025-12-31")
+        user = User.objects.create_user("cov", "c@example.com", "unused-pw")
+        self.client.force_login(user)
+        response = self.client.get(f"/api/utilities/coverage/?property={self.prop.id}")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(len(payload["coverage"]), 1)
+        self.assertEqual(payload["coverage"][0]["name"], "Electricity")

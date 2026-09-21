@@ -142,6 +142,7 @@ export interface UtilityType {
   frequency: 'monthly' | 'quarterly' | 'half_yearly' | 'yearly' | 'other'
   supplier: string
   apportionment: string
+  coverage_start: string | null
   notes: string
 }
 
@@ -257,6 +258,43 @@ export interface BillExtraction {
   message?: string
   detail?: string
   available?: boolean
+}
+
+export interface CoverageGap {
+  start: string
+  end: string
+  days: number
+}
+
+export interface CoverageSegment {
+  kind: 'covered' | 'gap'
+  start: string
+  end: string
+  days: number
+  width_pct: number
+}
+
+export interface Coverage {
+  utility_type: number
+  name: string
+  property: number
+  property_name: string
+  frequency: string
+  frequency_label: string
+  bills: number
+  bills_missing_period: number
+  overlaps: number
+  attachment_count: number
+  computable: boolean
+  reason: string | null
+  start: string | null
+  end: string | null
+  total_days: number
+  covered_days: number
+  gap_days: number
+  coverage_pct: number
+  gaps: CoverageGap[]
+  segments: CoverageSegment[]
 }
 
 // ---- Helpers ----

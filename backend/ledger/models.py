@@ -721,6 +721,14 @@ class UtilityType(TimestampedModel):
         max_length=20, choices=FREQUENCY_CHOICES, default=FREQ_QUARTERLY
     )
     supplier = models.CharField(max_length=200, blank=True)
+    coverage_start = models.DateField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Start tracking coverage from this date. Leave blank to use the "
+            "property's purchase date."
+        ),
+    )
     apportionment = models.CharField(
         max_length=10,
         choices=Category.APPORTION_CHOICES,
