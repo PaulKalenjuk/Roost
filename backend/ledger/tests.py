@@ -5,9 +5,12 @@ Run with::
     DB_ENGINE=sqlite python manage.py test ledger
 """
 from decimal import Decimal
+import tempfile
+from pathlib import Path
 from unittest import mock
 
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
 from . import depreciation, reports
@@ -21,6 +24,7 @@ from .models import (
     Owner,
     Property,
     PropertyOwnership,
+    Receipt,
     Reservation,
     UtilityBill,
     UtilityType,
@@ -384,3 +388,44 @@ class ApiBlankStringTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("name", response.json())
+
+
+class ReceiptUploadTests(BaseLedgerTestCase):
+    """Receipts land under MEDIA_ROOT and are only served to logged-in users."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.mkdtemp()
+        override = override_settings(MEDIA_ROOT=self.tmp)
+        override.enable()
+        self.addCleanup(override.disable)
+        user = User.objects.create_user("tester", "t@example.com", "unused-pw")
+        self.client.force_login(user)
+
+    def _upload(self):
+        upload = SimpleUploadedFile(
+            "receipt.pdf", b"%PDF-1.4 fake receipt", content_type="application/pdf"
+        )
+        response = self.client.post(
+            "/api/receipts/",
+            {"property": self.prop.id, "file": upload, "original_name": "receipt.pdf"},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        return Receipt.objects.get()
+
+    def test_upload_lands_in_media_root(self):
+        receipt = self._upload()
+        self.assertTrue(receipt.file.name.startswith("receipts/"))
+        self.assertTrue(Path(self.tmp).joinpath(receipt.file.name).exists())
+        self.assertEqual(receipt.original_name, "receipt.pdf")
+
+    def test_media_requires_login(self):
+        receipt = self._upload()
+        self.client.logout()
+        response = self.client.get("/media/" + receipt.file.name)
+        self.assertEqual(response.status_code, 403)
+
+    def test_media_served_when_authenticated(self):
+        receipt = self._upload()
+        response = self.client.get("/media/" + receipt.file.name)
+        self.assertEqual(response.status_code, 200)

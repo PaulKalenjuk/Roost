@@ -210,9 +210,11 @@ function AdhocExpenses() {
 function ReceiptCell({ expense, onUploaded }: { expense: Expense; onUploaded: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
 
   const upload = async (file: File) => {
     setBusy(true)
+    setErr('')
     const body = new FormData()
     body.append('file', file)
     body.append('property', String(expense.property))
@@ -221,6 +223,8 @@ function ReceiptCell({ expense, onUploaded }: { expense: Expense; onUploaded: ()
     try {
       await api('/api/receipts/', { method: 'POST', body })
       onUploaded()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Upload failed')
     } finally {
       setBusy(false)
     }
@@ -240,11 +244,17 @@ function ReceiptCell({ expense, onUploaded }: { expense: Expense; onUploaded: ()
         onChange={(e) => {
           const f = e.target.files?.[0]
           if (f) upload(f)
+          e.target.value = ''
         }}
       />
       <button type="button" className="ghost small" disabled={busy} onClick={() => inputRef.current?.click()}>
         {busy ? '…' : 'Upload'}
       </button>
+      {err ? (
+        <span className="badge err" title={err}>
+          !
+        </span>
+      ) : null}
     </div>
   )
 }
