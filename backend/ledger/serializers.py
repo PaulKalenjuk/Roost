@@ -1,5 +1,30 @@
 """REST serializers for the Roost API."""
+from django.http import QueryDict
 from rest_framework import serializers
+
+
+class BaseSerializer(serializers.ModelSerializer):
+    """Tolerate cleared form fields by treating ``""`` as ``null``.
+
+    DRF rejects an empty string for nullable Decimal/Date fields (a browser form
+    sends ``""`` when a field is left blank), which is a footgun that bites
+    every client.  Normalise it here for JSON bodies (multipart is left alone so
+    uploads keep working).
+    """
+
+    def to_internal_value(self, data):
+        if isinstance(data, dict) and not isinstance(data, QueryDict):
+            data = {
+                key: (
+                    None
+                    if value == ""
+                    and key in self.fields
+                    and self.fields[key].allow_null
+                    else value
+                )
+                for key, value in data.items()
+            }
+        return super().to_internal_value(data)
 
 from .models import (
     Asset,
@@ -25,7 +50,7 @@ class OwnerSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "email", "notes"]
 
 
-class PropertyOwnershipSerializer(serializers.ModelSerializer):
+class PropertyOwnershipSerializer(BaseSerializer):
     owner_name = serializers.CharField(source="owner.name", read_only=True)
 
     class Meta:
@@ -33,7 +58,7 @@ class PropertyOwnershipSerializer(serializers.ModelSerializer):
         fields = ["id", "property", "owner", "owner_name", "share_pct"]
 
 
-class PropertySerializer(serializers.ModelSerializer):
+class PropertySerializer(BaseSerializer):
     let_share = serializers.DecimalField(max_digits=8, decimal_places=6, read_only=True)
     rental_area_share = serializers.DecimalField(max_digits=8, decimal_places=6, read_only=True)
     ownership_total = serializers.DecimalField(max_digits=8, decimal_places=4, read_only=True)
@@ -49,7 +74,7 @@ class PropertySerializer(serializers.ModelSerializer):
         ]
 
 
-class ListingSerializer(serializers.ModelSerializer):
+class ListingSerializer(BaseSerializer):
     property_name = serializers.CharField(source="property.name", read_only=True)
 
     class Meta:
@@ -111,7 +136,7 @@ class ReceiptSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
-class ExpenseSerializer(serializers.ModelSerializer):
+class ExpenseSerializer(BaseSerializer):
     category_name = serializers.CharField(source="category.name", read_only=True)
     property_name = serializers.CharField(source="property.name", read_only=True)
     deductible_amount = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
@@ -128,7 +153,7 @@ class ExpenseSerializer(serializers.ModelSerializer):
         read_only_fields = ["source"]
 
 
-class UtilityTypeSerializer(serializers.ModelSerializer):
+class UtilityTypeSerializer(BaseSerializer):
     category_name = serializers.CharField(source="category.name", read_only=True)
 
     class Meta:
@@ -137,7 +162,7 @@ class UtilityTypeSerializer(serializers.ModelSerializer):
                   "frequency", "supplier", "apportionment", "notes"]
 
 
-class UtilityBillSerializer(serializers.ModelSerializer):
+class UtilityBillSerializer(BaseSerializer):
     utility_type_name = serializers.CharField(source="utility_type.name", read_only=True)
     claimable_amount = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     attachment_url = serializers.SerializerMethodField()
@@ -165,7 +190,7 @@ class DepreciationEntrySerializer(serializers.ModelSerializer):
                   "closing_value", "days_held"]
 
 
-class AssetSerializer(serializers.ModelSerializer):
+class AssetSerializer(BaseSerializer):
     property_name = serializers.CharField(source="property.name", read_only=True)
     depreciation_entries = DepreciationEntrySerializer(many=True, read_only=True)
     receipts = ReceiptSerializer(many=True, read_only=True)

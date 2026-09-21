@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, fetchList, money, pct, type Listing, type Owner, type Property } from '../api'
+import { api, fetchList, pct, type Listing, type Owner, type Property } from '../api'
 import { Alert, Field } from '../components'
 import { useProperties } from '../store'
 
@@ -32,9 +32,13 @@ const EMPTY: FormState = {
   notes: '',
 }
 
+/** Empty optional inputs must go to the API as null, not "" (DRF rejects ""). */
+const nullIfBlank = (value: string): string | null => (value.trim() === '' ? null : value)
+
 interface OwnerRow {
   owner: number | ''
-  share_pct: string
+  /** Entered as a percentage (0–100); stored as a fraction. */
+  percent: string
 }
 
 export default function PropertySetup() {
@@ -52,8 +56,10 @@ export default function PropertySetup() {
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
 
+  const refreshOwners = async () => setOwners(await fetchList<Owner>('/api/owners/'))
+
   useEffect(() => {
-    fetchList<Owner>('/api/owners/').then(setOwners).catch(() => {})
+    refreshOwners().catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -78,28 +84,45 @@ export default function PropertySetup() {
       notes: selected.notes ?? '',
     })
     setRows(
-      (selected.ownerships ?? []).map((o) => ({ owner: o.owner, share_pct: o.share_pct })),
+      (selected.ownerships ?? []).map((o) => ({
+        owner: o.owner,
+        percent: String(Number(o.share_pct) * 100),
+      })),
     )
     fetchList<Listing>(`/api/listings/?property=${selected.id}`).then(setListings).catch(() => {})
   }, [selectedId, properties])
-
-  const refreshOwners = () => fetchList<Owner>('/api/owners/').then(setOwners)
 
   const saveProperty = async (e: React.FormEvent) => {
     e.preventDefault()
     setBusy(true)
     setError('')
     setNotice('')
-    const payload = { ...form }
+    const payload = {
+      name: form.name,
+      address: form.address,
+      purchase_date: nullIfBlank(form.purchase_date),
+      purchase_price: nullIfBlank(form.purchase_price),
+      total_floor_area_sqm: nullIfBlank(form.total_floor_area_sqm),
+      rental_floor_area_sqm: nullIfBlank(form.rental_floor_area_sqm),
+      let_percentage: nullIfBlank(form.let_percentage),
+      gst_registered: form.gst_registered,
+      default_depreciation_method: form.default_depreciation_method,
+      notes: form.notes,
+    }
     try {
       if (asset?.id) {
         await api(`/api/properties/${asset.id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
         setNotice('Property saved.')
+        await reload()
       } else {
-        await api('/api/properties/', { method: 'POST', body: JSON.stringify(payload) })
-        setNotice('Property created.')
+        const created = await api<Property>('/api/properties/', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+        await reload()
+        select(created.id) // jump to the property we just made
+        setNotice('Property created — now add the owners below.')
       }
-      await reload()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
     } finally {
@@ -111,9 +134,14 @@ export default function PropertySetup() {
     if (!asset?.id) return
     setError('')
     setNotice('')
-    const total = rows.reduce((sum, r) => sum + Number(r.share_pct || 0), 0)
-    if (Math.abs(total - 1) > 0.0001) {
-      setError(`Ownership shares must total 100% (currently ${(total * 100).toFixed(2)}%).`)
+    const filled = rows.filter((r) => r.owner)
+    const total = filled.reduce((sum, r) => sum + Number(r.percent || 0), 0)
+    if (filled.length === 0) {
+      setError('Add at least one owner row first.')
+      return
+    }
+    if (Math.abs(total - 100) > 0.01) {
+      setError(`Ownership percentages must total 100% (currently ${total.toFixed(2)}%).`)
       return
     }
     setBusy(true)
@@ -121,11 +149,14 @@ export default function PropertySetup() {
       for (const existing of asset.ownerships ?? []) {
         await api(`/api/ownerships/${existing.id}/`, { method: 'DELETE' })
       }
-      for (const r of rows) {
-        if (!r.owner) continue
+      for (const r of filled) {
         await api('/api/ownerships/', {
           method: 'POST',
-          body: JSON.stringify({ property: asset.id, owner: r.owner, share_pct: r.share_pct || '0' }),
+          body: JSON.stringify({
+            property: asset.id,
+            owner: r.owner,
+            share_pct: (Number(r.percent || 0) / 100).toFixed(4),
+          }),
         })
       }
       await reload()
@@ -139,22 +170,34 @@ export default function PropertySetup() {
 
   const addOwner = async () => {
     if (!newOwner.name.trim()) return
-    await api('/api/owners/', { method: 'POST', body: JSON.stringify(newOwner) })
-    setNewOwner({ name: '', email: '' })
-    await refreshOwners()
+    setError('')
+    try {
+      await api('/api/owners/', { method: 'POST', body: JSON.stringify(newOwner) })
+      setNewOwner({ name: '', email: '' })
+      await refreshOwners()
+      setNotice('Owner added — add them to the ownership rows below.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not add owner')
+    }
   }
 
   const addListing = async () => {
     if (!asset?.id || !newListing.name.trim()) return
-    await api('/api/listings/', {
-      method: 'POST',
-      body: JSON.stringify({ ...newListing, property: asset.id }),
-    })
-    setNewListing({ name: '', platform: 'airbnb', external_id: '', url: '' })
-    setListings(await fetchList(`/api/listings/?property=${asset.id}`))
+    setError('')
+    try {
+      await api('/api/listings/', {
+        method: 'POST',
+        body: JSON.stringify({ ...newListing, property: asset.id }),
+      })
+      setNewListing({ name: '', platform: 'airbnb', external_id: '', url: '' })
+      setListings(await fetchList(`/api/listings/?property=${asset.id}`))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not add listing')
+    }
   }
 
-  const ownsTotal = rows.reduce((sum, r) => sum + Number(r.share_pct || 0), 0)
+  const ownsTotal = rows.filter((r) => r.owner).reduce((sum, r) => sum + Number(r.percent || 0), 0)
+  const ownsOk = Math.abs(ownsTotal - 100) < 0.01
 
   return (
     <>
@@ -235,7 +278,11 @@ export default function PropertySetup() {
             label="Default depreciation method"
             hint={
               <>
-                See the ATO for the implications: <a href={ATO_URL} target="_blank" rel="noreferrer">residential rental properties</a>.
+                See the ATO for the implications:{' '}
+                <a href={ATO_URL} target="_blank" rel="noreferrer">
+                  residential rental properties
+                </a>
+                .
               </>
             }
           >
@@ -262,7 +309,11 @@ export default function PropertySetup() {
         <>
           <div className="panel">
             <h2>Ownership</h2>
-            <p className="sub">Shares must total 100%. Reporting splits every line by these.</p>
+            <p className="sub">
+              Add each owner and their <strong>percentage</strong>. Percentages must total 100%.
+              Reporting splits every line by these shares.
+            </p>
+
             {rows.map((r, index) => (
               <div className="owner-row" key={index}>
                 <div>
@@ -275,7 +326,7 @@ export default function PropertySetup() {
                       setRows(copy)
                     }}
                   >
-                    <option value="">— select —</option>
+                    <option value="">— select owner —</option>
                     {owners.map((o) => (
                       <option key={o.id} value={o.id}>
                         {o.name}
@@ -284,40 +335,45 @@ export default function PropertySetup() {
                   </select>
                 </div>
                 <div>
-                  <label>Share (0–1)</label>
+                  <label>Ownership %</label>
                   <input
                     type="number"
-                    step="0.0001"
-                    value={r.share_pct}
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    placeholder="e.g. 60"
+                    value={r.percent}
                     onChange={(e) => {
                       const copy = [...rows]
-                      copy[index] = { ...copy[index], share_pct: e.target.value }
+                      copy[index] = { ...copy[index], percent: e.target.value }
                       setRows(copy)
                     }}
                   />
                 </div>
-                <button
-                  type="button"
-                  className="ghost small"
-                  onClick={() => setRows(rows.filter((_, i) => i !== index))}
-                >
+                <button type="button" className="ghost small" onClick={() => setRows(rows.filter((_, i) => i !== index))}>
                   Remove
                 </button>
               </div>
             ))}
+
+            {rows.length === 0 ? (
+              <p className="muted">No owners yet — click “+ Add owner”.</p>
+            ) : null}
+
             <div className="row">
-              <button type="button" className="ghost small" onClick={() => setRows([...rows, { owner: '', share_pct: '' }])}>
+              <button type="button" className="ghost small" onClick={() => setRows([...rows, { owner: '', percent: '' }])}>
                 + Add owner
               </button>
-              <span className={`badge ${Math.abs(ownsTotal - 1) < 0.0001 ? 'ok' : 'warn'}`}>
-                Total {(ownsTotal * 100).toFixed(2)}%
-              </span>
-              <button type="button" className="small" onClick={saveOwnerships} disabled={busy}>
+              <span className={`badge ${ownsOk ? 'ok' : 'warn'}`}>Total {ownsTotal.toFixed(2)}%</span>
+              <button type="button" className="small" onClick={saveOwnerships} disabled={busy || !ownsOk}>
                 Save ownership
               </button>
             </div>
 
             <h3>New owner</h3>
+            <p className="hint" style={{ marginTop: 0 }}>
+              Create the person first, then assign them above.
+            </p>
             <div className="row">
               <div>
                 <label>Name</label>
@@ -328,7 +384,7 @@ export default function PropertySetup() {
                 <input value={newOwner.email} onChange={(e) => setNewOwner({ ...newOwner, email: e.target.value })} />
               </div>
               <button type="button" className="ghost small" onClick={addOwner}>
-                Add owner
+                + Create owner
               </button>
             </div>
           </div>
@@ -384,10 +440,14 @@ export default function PropertySetup() {
 
           <p className="muted">
             Let share: <strong>{pct(asset.let_share)}</strong> · Ownership total:{' '}
-            <strong>{(Number(asset.ownership_total) * 100).toFixed(2)}%</strong>
+            <strong>{ownsTotal.toFixed(2)}%</strong>
           </p>
         </>
-      ) : null}
+      ) : (
+        <Alert kind="info">
+          Create the property first — then the ownership, listing and tax options appear here.
+        </Alert>
+      )}
     </>
   )
 }

@@ -327,3 +327,39 @@ class ApiAuthTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 401)
+
+
+class ApiBlankStringTests(TestCase):
+    """A browser form sends "" for blank optional fields; DRF must not choke."""
+
+    def setUp(self):
+        User.objects.create_user("tester", "t@example.com", "s3cret-pw")
+        self.client.login(username="tester", password="s3cret-pw")
+
+    def test_blank_optional_numeric_and_date_fields_accepted(self):
+        response = self.client.post(
+            "/api/properties/",
+            {
+                "name": "Blank test",
+                "purchase_date": "",
+                "purchase_price": "",
+                "let_percentage": "",
+                "total_floor_area_sqm": "200.00",
+                "rental_floor_area_sqm": "50.00",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertIsNone(response.json()["purchase_date"])
+        self.assertIsNone(response.json()["purchase_price"])
+
+    def test_ownership_percent_round_trip(self):
+        prop = Property.objects.create(name="Owned")
+        owner = Owner.objects.create(name="Alice")
+        response = self.client.post(
+            "/api/ownerships/",
+            {"property": prop.id, "owner": owner.id, "share_pct": "0.6000"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(Decimal(response.json()["share_pct"]), Decimal("0.6000"))
