@@ -1012,6 +1012,48 @@ class ReportPdfTests(BaseLedgerTestCase):
         html = pdf_renderer.render_report_html(report, owners, show_working=False)
         self.assertNotIn("Expenses — working", html)
 
+    def test_subtotals_are_not_page_footers(self):
+        """A <tfoot> repeats on every page a table spans; ours must not.
+
+        Regression: when the depreciation table rolled over a page, "Total
+        depreciation" was printed again on the continuation page (and once more
+        for every further page the table covered).
+        """
+        report, owners = reports.owner_reports(self.prop, "FY2025-26", True)
+        html = pdf_renderer.render_report_html(report, owners)
+        # The subtotal group must not be laid out as a repeating page footer…
+        self.assertIn("tfoot { display: table-row-group; }", html)
+        # …and each subtotal row is emitted exactly once.
+        self.assertEqual(html.count("Total depreciation"), 1)
+        self.assertEqual(html.count("Total claimable"), 1)
+        self.assertEqual(html.count("Net income ("), 1)
+
+    @unittest.skipUnless(_weasyprint_available(), "weasyprint not installed")
+    def test_subtotal_appears_once_when_the_table_spans_pages(self):
+        """End-to-end: a multi-page depreciation table keeps one subtotal."""
+        import pdfplumber
+
+        for i in range(90):
+            Asset.objects.create(
+                property=self.prop,
+                name=f"Appliance {i:02d}",
+                purchase_date="2025-08-01",
+                cost=Decimal("1200.00"),
+                effective_life_years=Decimal("5.00"),
+                method=Asset.METHOD_DIMINISHING,
+                business_use_pct=Decimal("0.2500"),
+            )
+        report, _owners = reports.owner_reports(self.prop, "FY2025-26", True)
+        payload = pdf_renderer.render_report_pdf(report)
+
+        with pdfplumber.open(io.BytesIO(payload)) as doc:
+            pages = [page.extract_text() or "" for page in doc.pages]
+        text = "\n".join(pages)
+        self.assertGreater(len(pages), 1, "expected the report to span pages")
+        # Once for the whole table — on its last page, not once per page.
+        self.assertEqual(text.count("Total depreciation"), 1)
+        self.assertIn("Total depreciation", pages[-1])
+
     def test_working_text_explains_the_calculation(self):
         report, _ = reports.owner_reports(self.prop, "FY2025-26", True)
         item = report["expenses"]["items"][0]

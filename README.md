@@ -63,6 +63,10 @@ Output shows income by month, claimable expenses by category (with the
 apportionment used), depreciation per asset, the net rental result, and — with
 `--owners` — each owner's share of every line.
 
+The downloadable PDF repeats a table's **column headings** across page breaks,
+but each **subtotal** appears once, at the end of its table (rendered as an
+ordinary row group rather than a repeating page footer).
+
 ## Tax notes
 
 - Let share defaults to `rental_floor_area / total_floor_area`, overridable with

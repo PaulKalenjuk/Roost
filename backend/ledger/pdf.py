@@ -36,7 +36,15 @@ table { width: 100%; border-collapse: collapse; margin-bottom: 3mm; }
 th, td { text-align: left; padding: 1.2mm 2mm; border-bottom: 0.4pt solid #e3e3df; }
 th { font-size: 8.5pt; text-transform: uppercase; letter-spacing: .03em; color: #6b7280; }
 td.num, th.num { text-align: right; }
+/* A <tfoot> is repeated at the bottom of *every* page a table spans (that's the
+   point of a page footer), which duplicated the subtotal rows — e.g. "Total
+   depreciation" printed again on the continuation page. Rendering the footer
+   as an ordinary row group keeps it once, at the end of its table. */
+tfoot { display: table-row-group; }
 tfoot td { font-weight: bold; border-top: 0.8pt solid #b9b9b4; }
+/* Keep a row on one page, and don't strand the subtotal on its own page. */
+tr { break-inside: avoid; }
+tfoot tr { break-before: avoid; }
 .total { font-size: 13pt; font-weight: bold; margin-top: 4mm; }
 .working { font-size: 8pt; color: #4b5563; }
 .owner { border: 0.5pt solid #d8d8d4; border-radius: 2mm; padding: 2mm 3mm; margin-bottom: 3mm; }
