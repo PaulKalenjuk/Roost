@@ -1,6 +1,12 @@
+# Secrets: every env-file variant — .env, .env.local, .env.production,
+# roost.env, roost.env.production … The examples are the only env files
+# that belong in git.
 .env
+.env.*
 *.env
+*.env.*
 !.env.example
+!*.env.example
 __pycache__/
 *.py[cod]
 .venv/
