@@ -25,12 +25,21 @@ built around a pluggable **importer layer**:
 
 | Importer | Status | Input |
 | --- | --- | --- |
-| `airbnb_pdf` | **works** | *Payments → Earnings → Download report* **PDF** → monthly totals (overwrites on re-import) |
+| `airbnb_pdf` | **works** | *Payments → Earnings → Download report* **PDF** → monthly totals (overwrites on re-import); **the PDF itself is kept** |
 | `airbnb_csv` | **works** | *Payments → Transaction history* **CSV** → per-reservation rows |
 | `airbnb_browser` | later | Playwright auto-download of the same files |
 
 Everything downstream is source-agnostic, so adding/replacing an importer never
 touches the ledger model.
+
+### Keeping the source documents
+
+Every earnings-report PDF imported is stored on the `ImportBatch` that produced
+it (`income_reports/<year>/<month>/…` under `MEDIA_ROOT`, served login-only via
+`/media/…`), **one copy per import** — re-importing still overwrites the monthly
+totals, but both documents are kept. That way any figure in the ledger can be
+traced back to the exact report it came from, and the per-FY receipt bundle
+includes an **Earnings reports/** folder alongside the expense receipts.
 
 ### Importing
 
@@ -101,7 +110,7 @@ units, its own network (`roost.network`) and volumes, port **8686**. See
 | Section | What it does |
 | --- | --- |
 | **Property setup** | dwelling, floor areas / let %, GST flag, depreciation-method default (ATO link), owners + shares, listings |
-| **Income** | import the Airbnb earnings **PDF** (monthly totals, overwrites), view monthly earnings + reservations |
+| **Income** | import the Airbnb earnings **PDF** (monthly totals, overwrites, **original PDF kept**), view monthly earnings, import history + reservations |
 | **Expenses** | two tabs — **Ad hoc** (with receipt upload) and **Utilities** |
 | **Depreciating assets** | asset register + built schedules, receipt upload, rebuild schedules |
 | **Reporting** | per-FY report with the maths shown, optional per-owner split |
@@ -127,10 +136,13 @@ Session-authenticated (the same login as `/admin/`) with DRF:
 /api/properties/ /api/owners/ /api/ownerships/ /api/listings/ /api/categories/
 /api/expenses/?kind=adhoc|utility  /api/utility-types/ /api/utility-bills/
 /api/assets/ (+ /recompute/)  /api/reservations/ /api/monthly-earnings/
-/api/receipts/ /api/imports/
-/api/income/import-pdf/        # multipart: file + listing
+/api/receipts/ /api/imports/?listing=&source=airbnb_pdf
+/api/income/import-pdf/        # multipart: file + listing (returns the retained report_url)
 /api/utilities/extract/        # multipart: file -> parsed bill fields (DeepSeek)
 /api/reports/fy/?property=&fy=&owners=1&recompute=1
+/api/reports/fy/pdf/           # same report as a PDF
+/api/reports/fy/receipts/      # ZIP of every source file (receipts, bills, assets,
+                               #   earnings reports) behind the year
 ```
 
 ## Layout
@@ -151,6 +163,7 @@ roost/
       serializers.py          # DRF serializers
       api.py / api_urls.py    # REST API
       reports.py              # per-FY + per-owner reporting
+      receipts_zip.py         # FY source-file ZIP (receipts, bills, assets, earnings reports)
       apportionment.py        # let-share / deductibility maths
       depreciation.py         # prime-cost & diminishing-value schedules
       fiscal.py               # AU financial-year helpers

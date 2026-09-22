@@ -53,7 +53,9 @@ Whatever triggers the first run also runs migrations (`entrypoint.sh`) and, if
 - Network `roost` is user-defined, so these two containers *cannot* be reached by
   the other rootless containers except via published ports.
 - Data lives in Podman volumes `roost-db-data` and `roost-media`
-  (`~/.local/share/containers/storage/volumes/`).
+  (`~/.local/share/containers/storage/volumes/`). `roost-media` holds uploaded
+  receipts/bills, asset images **and the retained Airbnb earnings-report PDFs**
+  (`income_reports/…`) — back this volume up along with the database.
 - Nothing is bind-mounted from `/Media` or the (currently degraded) `/Backups`
   array — DB backups should be added once `/Backups` is healthy again.
 

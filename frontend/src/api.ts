@@ -286,6 +286,8 @@ export interface ImportBatch {
   source: string
   listing: number | null
   filename: string
+  report_file: string
+  report_url: string | null
   period_start: string | null
   period_end: string | null
   summary: Record<string, unknown>

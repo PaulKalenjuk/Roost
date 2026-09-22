@@ -249,7 +249,17 @@ class ReceiptViewSet(viewsets.ModelViewSet):
 
 class ImportBatchViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ImportBatchSerializer
-    queryset = ImportBatch.objects.all()
+    queryset = ImportBatch.objects.select_related("listing")
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        listing = self.request.query_params.get("listing")
+        source = self.request.query_params.get("source")
+        if listing:
+            qs = qs.filter(listing_id=listing)
+        if source:
+            qs = qs.filter(source=source)
+        return qs
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +276,10 @@ def import_income_pdf(request):
         return Response({"detail": "listing is required."}, status=400)
     listing = get_object_or_404(Listing, pk=listing_id)
     batch = airbnb_pdf.import_report(upload, listing, filename=upload.name)
-    return Response(ImportBatchSerializer(batch).data, status=201)
+    return Response(
+        ImportBatchSerializer(batch, context={"request": request}).data,
+        status=201,
+    )
 
 
 @api_view(["POST"])

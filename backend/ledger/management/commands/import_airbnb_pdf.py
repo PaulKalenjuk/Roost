@@ -1,4 +1,6 @@
 """``python manage.py import_airbnb_pdf <report.pdf> --listing <id|name>``"""
+from pathlib import Path
+
 from django.core.management.base import BaseCommand, CommandError
 
 from ledger.importers import airbnb_pdf
@@ -17,8 +19,11 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        path = options["path"]
+        if not Path(path).exists():
+            raise CommandError(f"No such file: {path}")
         listing = self._resolve_listing(options["listing"])
-        batch = airbnb_pdf.import_report(options["path"], listing, filename=options["path"])
+        batch = airbnb_pdf.import_report(path, listing, filename=path)
 
         self.stdout.write(
             self.style.SUCCESS(
@@ -38,6 +43,8 @@ class Command(BaseCommand):
         )
         if batch.summary:
             self.stdout.write(f"Summary: {batch.summary}")
+        if batch.report_file:
+            self.stdout.write(f"PDF kept as {batch.report_file.name}")
 
     def _resolve_listing(self, value):
         if str(value).isdigit():

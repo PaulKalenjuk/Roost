@@ -175,11 +175,19 @@ class UtilityBillAdmin(admin.ModelAdmin):
 
 @admin.register(ImportBatch)
 class ImportBatchAdmin(admin.ModelAdmin):
-    list_display = ("created_at", "source", "listing", "filename", "period_start",
-                    "period_end", "rows_total", "rows_created", "rows_updated",
-                    "rows_skipped", "rows_failed")
+    list_display = ("created_at", "source", "listing", "filename", "report_link",
+                    "period_start", "period_end", "rows_total", "rows_created",
+                    "rows_updated", "rows_skipped", "rows_failed")
     list_filter = ("source",)
-    readonly_fields = ("created_at", "updated_at", "finished_at", "summary")
+    readonly_fields = ("created_at", "updated_at", "finished_at", "summary",
+                       "report_file")
+
+    @admin.display(description="Report PDF")
+    def report_link(self, obj):
+        """The PDF the figures came from — kept for audit."""
+        if obj.report_file:
+            return format_html('<a href="{}">download</a>', obj.report_file.url)
+        return "—"
 
 
 admin.site.site_header = "Roost"

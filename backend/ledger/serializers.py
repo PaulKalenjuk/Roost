@@ -235,8 +235,23 @@ class EarningsSummarySerializer(BaseSerializer):
 
 
 class ImportBatchSerializer(serializers.ModelSerializer):
+    report_url = serializers.SerializerMethodField()
+
     class Meta:
         model = ImportBatch
-        fields = ["id", "source", "listing", "filename", "period_start", "period_end",
-                  "summary", "rows_total", "rows_created", "rows_updated",
-                  "rows_skipped", "rows_failed", "log", "created_at"]
+        fields = ["id", "source", "listing", "filename", "report_file",
+                  "report_url", "period_start", "period_end", "summary",
+                  "rows_total", "rows_created", "rows_updated", "rows_skipped",
+                  "rows_failed", "log", "created_at"]
+        extra_kwargs = {"report_file": {"read_only": True}}
+
+    def get_report_url(self, obj):
+        """Absolute download link for the retained PDF (media needs login)."""
+        if not obj.report_file:
+            return None
+        request = self.context.get("request")
+        return (
+            request.build_absolute_uri(obj.report_file.url)
+            if request
+            else obj.report_file.url
+        )

@@ -13,6 +13,7 @@ import unittest
 import zipfile
 from pathlib import Path
 from unittest import mock
+from urllib.parse import urlsplit
 
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -29,6 +30,7 @@ from .models import (
     DepreciationEntry,
     EarningsSummary,
     Expense,
+    ImportBatch,
     Listing,
     MonthlyEarnings,
     Owner,
@@ -289,6 +291,112 @@ class AirbnbPdfImportTests(BaseLedgerTestCase):
         self.assertEqual(MonthlyEarnings.objects.count(), 2)  # not duplicated
         july = MonthlyEarnings.objects.get(listing=self.listing, month="2025-07-01")
         self.assertEqual(july.gross_earnings, Decimal("80.00"))
+
+
+class IncomeReportRetentionTests(BaseLedgerTestCase):
+    """The earnings-report PDF is kept with the import — one copy per batch."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.mkdtemp()
+        override = override_settings(MEDIA_ROOT=self.tmp)
+        override.enable()
+        self.addCleanup(override.disable)
+
+    def test_import_from_a_path_keeps_the_pdf(self):
+        pdf = Path(self.tmp) / "FY2025-26 earnings.pdf"
+        pdf.write_bytes(b"%PDF-1.4 the real thing")
+        with mock.patch.object(airbnb_pdf, "extract_text", return_value=SAMPLE_REPORT_TEXT):
+            batch = airbnb_pdf.import_report(str(pdf), self.listing, filename=str(pdf))
+
+        self.assertTrue(batch.report_file)
+        self.assertTrue(batch.report_file.name.startswith("income_reports/"))
+        self.assertEqual(
+            Path(batch.report_file.path).read_bytes(), b"%PDF-1.4 the real thing"
+        )
+        self.assertEqual(MonthlyEarnings.objects.count(), 2)
+        self.assertIn("pdf retained", batch.log)
+
+    def test_uploaded_pdf_is_kept_with_the_batch(self):
+        upload = SimpleUploadedFile(
+            "report.pdf", b"%PDF-1.4 upload", content_type="application/pdf"
+        )
+        with mock.patch.object(airbnb_pdf, "extract_text", return_value=SAMPLE_REPORT_TEXT):
+            batch = airbnb_pdf.import_report(upload, self.listing, filename=upload.name)
+
+        self.assertEqual(Path(batch.report_file.path).read_bytes(), b"%PDF-1.4 upload")
+
+    def test_reimport_keeps_every_batch_but_still_overwrites_months(self):
+        for name in ("first.pdf", "second.pdf"):
+            upload = SimpleUploadedFile(
+                name, f"%PDF-1.4 {name}".encode(), content_type="application/pdf"
+            )
+            with mock.patch.object(
+                airbnb_pdf, "extract_text", return_value=SAMPLE_REPORT_TEXT
+            ):
+                airbnb_pdf.import_report(upload, self.listing, filename=name)
+
+        self.assertEqual(ImportBatch.objects.count(), 2)
+        self.assertEqual(ImportBatch.objects.exclude(report_file="").count(), 2)
+        self.assertEqual(MonthlyEarnings.objects.count(), 2)  # months overwritten
+
+    def test_text_import_keeps_no_file(self):
+        """A text-only import (how the parser tests call it) has nothing to keep."""
+        batch = airbnb_pdf.import_report(SAMPLE_REPORT_TEXT, self.listing)
+        self.assertFalse(batch.report_file)
+
+
+class IncomePdfApiRetentionTests(BaseLedgerTestCase):
+    """The import endpoint hands back a link to the retained PDF (login required)."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.mkdtemp()
+        override = override_settings(MEDIA_ROOT=self.tmp)
+        override.enable()
+        self.addCleanup(override.disable)
+        user = User.objects.create_user("importer", "i@example.com", "unused-pw")
+        self.client.force_login(user)
+
+    def _import(self):
+        upload = SimpleUploadedFile(
+            "report.pdf", b"%PDF-1.4 api", content_type="application/pdf"
+        )
+        with mock.patch(
+            "ledger.importers.airbnb_pdf.extract_text", return_value=SAMPLE_REPORT_TEXT
+        ):
+            return self.client.post(
+                "/api/income/import-pdf/",
+                {"file": upload, "listing": self.listing.id},
+            )
+
+    def test_response_links_to_the_retained_pdf(self):
+        response = self._import()
+        self.assertEqual(response.status_code, 201, response.content)
+        body = response.json()
+        self.assertIn("income_reports/", body["report_url"])
+        # DRF turns the file into an absolute URL when a request is in context.
+        media_path = urlsplit(body["report_file"]).path
+        self.assertTrue(media_path.startswith("/media/income_reports/"))
+        stored = Path(self.tmp).joinpath(media_path[len("/media/"):])
+        self.assertTrue(stored.exists())
+        self.assertEqual(stored.read_bytes(), b"%PDF-1.4 api")
+
+    def test_media_link_requires_login(self):
+        body = self._import().json()
+        self.client.logout()
+        media_path = urlsplit(body["report_file"]).path
+        self.assertEqual(self.client.get(media_path).status_code, 403)
+
+    def test_imports_endpoint_lists_the_batch_and_its_file(self):
+        self._import()
+        response = self.client.get(
+            f"/api/imports/?listing={self.listing.id}&source=airbnb_pdf"
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        rows = response.json()["results"]
+        self.assertEqual(len(rows), 1)
+        self.assertIn("income_reports/", rows[0]["report_url"])
 
 
 class OwnerReportTests(BaseLedgerTestCase):
@@ -1040,6 +1148,44 @@ class ReceiptsZipTests(BaseLedgerTestCase):
         self.assertNotIn("Supplies/gone.pdf", archive.namelist())
         manifest = archive.read("manifest.csv").decode()
         self.assertIn("file missing", manifest)
+
+    def test_earnings_report_pdfs_are_bundled_in_their_own_folder(self):
+        ImportBatch.objects.create(
+            source="airbnb_pdf",
+            listing=self.listing,
+            filename="airbnb-earnings-FY2025-26.pdf",
+            period_start=dt.date(2025, 7, 1),
+            period_end=dt.date(2026, 6, 30),
+            report_file=SimpleUploadedFile("report.pdf", b"report-bytes"),
+        )
+        response = self.api.get(
+            f"/api/reports/fy/receipts/?property={self.prop.id}&fy=FY2025-26"
+        )
+        self.assertEqual(response.status_code, 200, response.content[:300])
+        archive = zipfile.ZipFile(io.BytesIO(response.content))
+        names = archive.namelist()
+        self.assertIn("Earnings reports/airbnb-earnings-FY2025-26.pdf", names)
+        self.assertEqual(
+            archive.read("Earnings reports/airbnb-earnings-FY2025-26.pdf"),
+            b"report-bytes",
+        )
+        manifest = archive.read("manifest.csv").decode()
+        self.assertIn("Earnings reports/airbnb-earnings-FY2025-26.pdf", manifest)
+        self.assertIn("earnings report", manifest)
+
+    def test_earnings_report_outside_the_year_is_excluded(self):
+        ImportBatch.objects.create(
+            source="airbnb_pdf",
+            listing=self.listing,
+            filename="next-year.pdf",
+            period_start=dt.date(2026, 7, 1),
+            period_end=dt.date(2027, 6, 30),
+            report_file=SimpleUploadedFile("next.pdf", b"next"),
+        )
+        response = self.api.get(
+            f"/api/reports/fy/receipts/?property={self.prop.id}&fy=FY2025-26"
+        )
+        self.assertEqual(response.status_code, 404)
 
     def test_requires_login(self):
         response = self.client.get(f"/api/reports/fy/receipts/?property={self.prop.id}")

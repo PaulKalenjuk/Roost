@@ -19,6 +19,7 @@ export default function Income() {
   const [earnings, setEarnings] = useState<MonthlyEarnings[]>([])
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [summaries, setSummaries] = useState<EarningsSummary[]>([])
+  const [imports, setImports] = useState<ImportBatch[]>([])
   const [nightsDraft, setNightsDraft] = useState<Record<number, string>>({})
   const [manualFy, setManualFy] = useState('')
   const [manualNights, setManualNights] = useState('')
@@ -47,14 +48,16 @@ export default function Income() {
   const load = async (id: number) => {
     setLoading(true)
     try {
-      const [e, r, s] = await Promise.all([
+      const [e, r, s, i] = await Promise.all([
         fetchList<MonthlyEarnings>(`/api/monthly-earnings/?listing=${id}`),
         fetchList<Reservation>(`/api/reservations/?listing=${id}`),
         fetchList<EarningsSummary>(`/api/earnings-summaries/?listing=${id}`),
+        fetchList<ImportBatch>(`/api/imports/?listing=${id}&source=airbnb_pdf`),
       ])
       setEarnings(e)
       setReservations(r)
       setSummaries(s)
+      setImports(i)
     } finally {
       setLoading(false)
     }
@@ -67,6 +70,7 @@ export default function Income() {
       setEarnings([])
       setReservations([])
       setSummaries([])
+      setImports([])
       return
     }
     fetchList<Listing>(`/api/listings/?property=${selected.id}`).then((ls) => {
@@ -204,7 +208,8 @@ export default function Income() {
       <h1>Income</h1>
       <p className="sub">
         Import the Airbnb earnings report to bring in monthly totals. Re-importing
-        overwrites the same months.
+        overwrites the same months. The PDF you upload is kept with the import, so
+        every figure stays traceable to its source.
       </p>
 
       {!selected ? (
@@ -260,8 +265,63 @@ export default function Income() {
               <Alert kind="info">
                 Period {batch.period_start ?? '?'} → {batch.period_end ?? '?'}
                 {batch.summary?.nights_booked ? ` · ${batch.summary.nights_booked} nights booked` : ''}
+                {batch.report_url ? (
+                  <>
+                    {' · '}
+                    <a href={batch.report_url} target="_blank" rel="noreferrer">
+                      View the PDF just imported
+                    </a>
+                  </>
+                ) : null}
               </Alert>
             ) : null}
+          </div>
+
+          <div className="panel">
+            <h2>Import history</h2>
+            <p className="sub">
+              Every earnings report you've imported is kept, so any figure can be traced
+              back to the document it came from.
+            </p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Imported</th>
+                  <th>Period</th>
+                  <th>File</th>
+                  <th className="num">Months</th>
+                </tr>
+              </thead>
+              <tbody>
+                {imports.map((b) => (
+                  <tr key={b.id}>
+                    <td>{b.created_at?.slice(0, 10)}</td>
+                    <td>
+                      {b.period_start ?? '?'} → {b.period_end ?? '?'}
+                    </td>
+                    <td>
+                      {b.report_url ? (
+                        <a href={b.report_url} target="_blank" rel="noreferrer">
+                          {b.filename || 'earnings-report.pdf'}
+                        </a>
+                      ) : (
+                        <span className="muted">
+                          {b.filename || '—'} (no file kept)
+                        </span>
+                      )}
+                    </td>
+                    <td className="num">{b.rows_total}</td>
+                  </tr>
+                ))}
+                {imports.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="muted">
+                      No earnings reports imported yet.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
           </div>
 
           {loading ? <Loading what="income" /> : null}

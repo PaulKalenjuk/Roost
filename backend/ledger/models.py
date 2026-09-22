@@ -762,6 +762,14 @@ class ImportBatch(TimestampedModel):
         Listing, null=True, blank=True, on_delete=models.SET_NULL, related_name="import_batches"
     )
     filename = models.CharField(max_length=255, blank=True)
+    report_file = models.FileField(
+        upload_to="income_reports/%Y/%m/",
+        blank=True,
+        help_text=(
+            "The earnings-report PDF exactly as imported, kept per batch so every "
+            "figure can be traced back to the document that produced it."
+        ),
+    )
     period_start = models.DateField(null=True, blank=True)
     period_end = models.DateField(null=True, blank=True)
     summary = models.JSONField(default=dict, blank=True)

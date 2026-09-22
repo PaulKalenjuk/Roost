@@ -9,6 +9,8 @@ Layout::
         agl-bill-2026-01.pdf
       Depreciating assets/ <- receipts for assets depreciated in the year
         aircon-invoice.pdf
+      Earnings reports/    <- the Airbnb PDFs the income figures came from
+        airbnb-earnings-FY2025-26.pdf
       manifest.csv
       report.pdf           <- if the PDF renderer is available
 
@@ -40,6 +42,18 @@ def _bill_in_fy(bill, start, end):
         and bill.period_start <= end
         and bill.period_end >= start
     )
+
+
+def _report_in_fy(batch, start, end):
+    """An import belongs to the FY if the report period overlaps it.
+
+    Falls back to the import date for rows with no period (e.g. a partial or
+    hand-made record).
+    """
+    if batch.period_start and batch.period_end:
+        return batch.period_start <= end and batch.period_end >= start
+    dated = (batch.period_start or batch.period_end or batch.created_at.date())
+    return start <= dated <= end
 
 
 class _Collector:
@@ -79,7 +93,7 @@ class _Collector:
 
 def build_receipts_zip(property_obj, label, report=None, owners=None, show_working=False):
     """Return ZIP bytes, or ``None`` when there is nothing to include."""
-    from .models import Asset, DepreciationEntry, Expense, UtilityBill
+    from .models import Asset, DepreciationEntry, Expense, ImportBatch, UtilityBill
 
     start, end = fiscal.fy_bounds(label)
     buffer = io.BytesIO()
@@ -154,6 +168,32 @@ def build_receipts_zip(property_obj, label, report=None, owners=None, show_worki
                         "source": "depreciating asset",
                     },
                 )
+
+        # The Airbnb earnings-report PDFs the income figures came from.
+        for batch in (
+            ImportBatch.objects.filter(listing__property=property_obj)
+            .select_related("listing")
+            .order_by("period_start", "created_at")
+        ):
+            if not batch.report_file or not _report_in_fy(batch, start, end):
+                continue
+            collector.add(
+                "Earnings reports",
+                batch.filename or os.path.basename(batch.report_file.name),
+                batch.report_file,
+                {
+                    "category": "Earnings reports",
+                    "date": batch.period_start or batch.created_at.date(),
+                    "description": (
+                        f"{batch.listing.name} earnings report"
+                        if batch.listing
+                        else "Airbnb earnings report"
+                    ),
+                    "amount": "",
+                    "claimable": "",
+                    "source": "earnings report",
+                },
+            )
 
         if not collector.rows:
             return None

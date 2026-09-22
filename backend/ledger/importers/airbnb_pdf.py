@@ -15,11 +15,17 @@ The parser works on extracted text, so it is easy to unit-test without a PDF:
     from ledger.importers.airbnb_pdf import parse_report_text, import_report
 
 ``import_report`` accepts either a path to a PDF or a text string.
+
+The uploaded PDF itself is **kept** on the :class:`~ledger.models.ImportBatch`
+(``report_file``), one copy per import, so the ledger stays auditable: every
+monthly total can be traced back to the exact document it was read from.
 """
 import datetime as dt
+import os
 import re
 from decimal import Decimal, InvalidOperation
 
+from django.core.files.base import ContentFile
 from django.db import transaction
 
 from ..models import EarningsSummary, ImportBatch, Listing, MonthlyEarnings
@@ -161,13 +167,46 @@ def extract_text(source):
     return "\n".join(text_parts)
 
 
+def _read_pdf_bytes(source):
+    """Return the raw bytes of a PDF source, or ``None`` when there is no file.
+
+    Accepts a path, ``bytes``, or any file-like object (Django ``UploadedFile``,
+    open handle, ``BytesIO``).  A string containing newlines is treated as
+    already-extracted *text* — there is nothing to keep in that case.
+    """
+    if source is None:
+        return None
+    if isinstance(source, (bytes, bytearray)):
+        return bytes(source)
+    if isinstance(source, str):
+        if "\n" in source:
+            return None  # plain text, not a file
+        with open(source, "rb") as handle:
+            return handle.read()
+
+    # File-like: read it (rewinding first, and leaving it rewound) so the
+    # parser and the stored copy both see the whole document.
+    def _rewind(obj):
+        try:
+            obj.seek(0)
+        except (AttributeError, OSError, ValueError):
+            pass
+
+    _rewind(source)
+    data = source.read()
+    _rewind(source)
+    return data if isinstance(data, (bytes, bytearray)) else None
+
+
 def import_report(source, listing, filename=""):
     """Import an earnings report (PDF path/bytes, or text) for ``listing``.
 
     Upserts :class:`~ledger.models.MonthlyEarnings` — existing months for the
-    listing are **overwritten**.  Returns the saved ``ImportBatch``.
+    listing are **overwritten**.  The PDF is retained on the batch.  Returns the
+    saved ``ImportBatch``.
     """
-    text = extract_text(source)
+    raw = _read_pdf_bytes(source)
+    text = extract_text(raw if raw is not None else source)
     parsed = parse_report_text(text)
 
     batch = ImportBatch(
@@ -180,6 +219,12 @@ def import_report(source, listing, filename=""):
     )
 
     log_lines = []
+    if raw:
+        # Keep the source document alongside the figures it produced.
+        stored_name = os.path.basename(filename or batch.filename) or "earnings-report.pdf"
+        batch.report_file.save(stored_name, ContentFile(raw), save=False)
+        log_lines.append(f"pdf retained: {batch.report_file.name}")
+
     batch.rows_total = len(parsed["months"])
     for entry in parsed["months"]:
         gross = entry["gross_earnings"]
