@@ -668,7 +668,10 @@ class PropertyImageTests(BaseLedgerTestCase):
             logo = page.images[0]
             self.assertGreater(logo["x0"], page.width / 2)  # right-hand half
             self.assertLess(logo["x1"], page.width)  # inside the margin
-            self.assertLess(logo["y0"], page.height / 4)  # near the top
+            # NB: "top" is measured down from the page top; the y0/y1 pair is
+            # bottom-up PDF space, so y0 is near the *bottom*.
+            self.assertLess(logo["top"], page.height / 4)  # near the top
+            self.assertLess(logo["x1"] - logo["x0"], 60 / 25.4 * 72)  # <= 60mm wide
 
 
 class ReceiptUploadTests(BaseLedgerTestCase):
