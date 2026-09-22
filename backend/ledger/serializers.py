@@ -63,6 +63,7 @@ class PropertySerializer(BaseSerializer):
     let_share = serializers.DecimalField(max_digits=8, decimal_places=6, read_only=True)
     rental_area_share = serializers.DecimalField(max_digits=8, decimal_places=6, read_only=True)
     ownership_total = serializers.DecimalField(max_digits=8, decimal_places=4, read_only=True)
+    image_url = serializers.SerializerMethodField()
     ownerships = PropertyOwnershipSerializer(many=True, read_only=True)
 
     class Meta:
@@ -71,8 +72,20 @@ class PropertySerializer(BaseSerializer):
             "id", "name", "address", "purchase_date", "purchase_price",
             "total_floor_area_sqm", "rental_floor_area_sqm", "let_percentage",
             "gst_registered", "default_depreciation_method", "notes",
+            "image", "image_url",
             "let_share", "rental_area_share", "ownership_total", "ownerships",
         ]
+
+    def get_image_url(self, obj):
+        """Absolute URL for the property image (media is served to logged-in users)."""
+        if not obj.image:
+            return None
+        request = self.context.get("request")
+        return (
+            request.build_absolute_uri(obj.image.url)
+            if request
+            else obj.image.url
+        )
 
 
 class ListingSerializer(BaseSerializer):

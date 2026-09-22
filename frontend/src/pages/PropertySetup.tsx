@@ -35,6 +35,21 @@ const EMPTY: FormState = {
 /** Empty optional inputs must go to the API as null, not "" (DRF rejects ""). */
 const nullIfBlank = (value: string): string | null => (value.trim() === '' ? null : value)
 
+/**
+ * Multipart body for the property form.
+ *
+ * Only needed when an image is attached — a plain JSON body can't carry a file.
+ * Nulls become "" and the serializer turns them back into null server-side.
+ */
+function propertyFormData(payload: Record<string, unknown>, image: File): FormData {
+  const body = new FormData()
+  for (const [key, value] of Object.entries(payload)) {
+    body.append(key, value === null ? '' : String(value))
+  }
+  body.append('image', image)
+  return body
+}
+
 interface OwnerRow {
   owner: number | ''
   /** Entered as a percentage (0–100); stored as a fraction. */
@@ -90,6 +105,7 @@ export default function PropertySetup() {
 
   // Owners the user removed on this screen; kept out of the candidate list until
   // the property changes or the page is reloaded.
+  const imageRef = useRef<HTMLInputElement>(null)
   const removedRef = useRef<number[]>([])
   const [removed, setRemoved] = useState<number[]>([])
   const lastPropRef = useRef<number | null>(null)
@@ -160,22 +176,43 @@ export default function PropertySetup() {
       default_depreciation_method: form.default_depreciation_method,
       notes: form.notes,
     }
+    const file = imageRef.current?.files?.[0]
     try {
       if (asset?.id) {
-        await api(`/api/properties/${asset.id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
+        await api(`/api/properties/${asset.id}/`, {
+          method: 'PATCH',
+          body: file ? propertyFormData(payload, file) : JSON.stringify(payload),
+        })
         setNotice('Property saved.')
         await reload()
       } else {
         const created = await api<Property>('/api/properties/', {
           method: 'POST',
-          body: JSON.stringify(payload),
+          body: file ? propertyFormData(payload, file) : JSON.stringify(payload),
         })
         await reload()
         select(created.id) // jump to the property we just made
         setNotice('Property created — now add the owners below.')
       }
+      if (imageRef.current) imageRef.current.value = ''
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeImage = async () => {
+    if (!asset?.id) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await api(`/api/properties/${asset.id}/clear-image/`, { method: 'POST' })
+      await reload()
+      setNotice('Property image removed.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove the image')
     } finally {
       setBusy(false)
     }
@@ -374,6 +411,29 @@ export default function PropertySetup() {
         <Field label="Notes">
           <textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
         </Field>
+
+        <h3>Property image</h3>
+        <p className="hint" style={{ marginTop: 0 }}>
+          Optional. When set it is printed in the top-right corner of the financial-year
+          report PDF.
+        </p>
+        <div className="row">
+          <div>
+            <label>Image (PNG or JPG)</label>
+            <input type="file" accept="image/*" ref={imageRef} />
+          </div>
+          {asset?.id && asset.image_url ? (
+            <div>
+              <label>Current image</label>
+              <img className="prop-thumb" src={asset.image_url} alt="" />
+            </div>
+          ) : null}
+          {asset?.id && asset.image_url ? (
+            <button type="button" className="ghost small" onClick={removeImage} disabled={busy}>
+              Remove image
+            </button>
+          ) : null}
+        </div>
         <div style={{ height: 14 }} />
         <button disabled={busy}>{asset?.id ? 'Save property' : 'Create property'}</button>
       </form>

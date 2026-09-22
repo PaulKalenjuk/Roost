@@ -65,7 +65,8 @@ apportionment used), depreciation per asset, the net rental result, and — with
 
 The downloadable PDF repeats a table's **column headings** across page breaks,
 but each **subtotal** appears once, at the end of its table (rendered as an
-ordinary row group rather than a repeating page footer).
+ordinary row group rather than a repeating page footer). If the property has an
+**image** (set on Property setup), it is printed top-right of the first page.
 
 ## Tax notes
 
@@ -113,7 +114,7 @@ units, its own network (`roost.network`) and volumes, port **8686**. See
 
 | Section | What it does |
 | --- | --- |
-| **Property setup** | dwelling, floor areas / let %, GST flag, depreciation-method default (ATO link), owners + shares, listings |
+| **Property setup** | dwelling, floor areas / let %, GST flag, depreciation-method default (ATO link), owners + shares, listings, property image (printed top-right on the FY PDF) |
 | **Income** | import the Airbnb earnings **PDF** (monthly totals, overwrites, **original PDF kept**), view monthly earnings, import history + reservations |
 | **Expenses** | two tabs — **Ad hoc** (with receipt upload) and **Utilities** |
 | **Depreciating assets** | asset register + built schedules, receipt upload, rebuild schedules |

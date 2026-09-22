@@ -232,7 +232,10 @@ def build_receipts_zip(property_obj, label, report=None, owners=None, show_worki
                 archive.writestr(
                     "report.pdf",
                     pdf.render_report_pdf(
-                        report, owners or [], show_working=show_working
+                        report,
+                        owners or [],
+                        show_working=show_working,
+                        image=property_obj.image,
                     ),
                 )
             except Exception:  # pragma: no cover - renderer optional

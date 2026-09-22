@@ -3,7 +3,13 @@
 HTML is built here (easy to test and to tweak) and handed to WeasyPrint, which
 is imported lazily so the rest of the app works even if the PDF stack isn't
 installed — callers get :class:`PdfUnavailable` instead of an ImportError.
+
+The optional ``image`` (a property's photo/mark) is embedded as a data URI so the
+HTML stays self-contained — no file lookups at render time.
 """
+import base64
+import mimetypes
+
 from django.utils.html import escape
 
 
@@ -32,6 +38,10 @@ h1 { font-size: 17pt; margin: 0 0 2mm; }
 h2 { font-size: 12pt; margin: 6mm 0 2mm; border-bottom: 1px solid #d8d8d4; padding-bottom: 1mm; }
 h3 { font-size: 11pt; margin: 4mm 0 1mm; }
 .meta { color: #6b7280; font-size: 9pt; margin: 0 0 4mm; }
+/* Property image sits top-right of the first page; the ::after clears the float
+   so the headings below are not indented around it. */
+.doc-head::after { content: ""; display: block; clear: both; }
+.prop-logo { float: right; max-width: 55mm; max-height: 34mm; margin: 0 0 2mm 6mm; }
 table { width: 100%; border-collapse: collapse; margin-bottom: 3mm; }
 th, td { text-align: left; padding: 1.2mm 2mm; border-bottom: 0.4pt solid #e3e3df; }
 th { font-size: 8.5pt; text-transform: uppercase; letter-spacing: .03em; color: #6b7280; }
@@ -54,12 +64,43 @@ tfoot tr { break-before: avoid; }
 """
 
 
-def render_report_html(report, owners=None, show_working=False):
+def _image_data_uri(image):
+    """Embed an uploaded image as a ``data:`` URI, or return ``None``.
+
+    Accepts a Django ``FieldFile`` (what the model gives us), a path, or bytes.
+    A missing/unreadable file is not an error: the report simply has no logo.
+    """
+    if not image:
+        return None
+    try:
+        if hasattr(image, "open") and hasattr(image, "name"):  # FieldFile
+            name = image.name or ""
+            with image.open("rb") as handle:
+                data = handle.read()
+        elif isinstance(image, (bytes, bytearray)):
+            data, name = bytes(image), ""
+        else:
+            name = str(image)
+            with open(image, "rb") as handle:
+                data = handle.read()
+    except (FileNotFoundError, OSError, ValueError):
+        return None
+    if not data:
+        return None
+    mime = mimetypes.guess_type(name)[0] or "image/png"
+    return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
+
+
+def render_report_html(report, owners=None, show_working=False, image=None):
     """Build the report as an HTML string."""
     parts = []
     add = parts.append
 
     add(f"<html><head><meta charset='utf-8'><style>{CSS}</style></head><body>")
+    add("<div class='doc-head'>")
+    logo = _image_data_uri(image)
+    if logo:
+        add(f"<img class='prop-logo' src='{logo}' alt=''>")
     add("<h1>Roost — rental report</h1>")
     period = report.get("period") or (None, None)
     add(
@@ -71,6 +112,7 @@ def render_report_html(report, owners=None, show_working=False):
         f"GST registered: {'yes' if report.get('gst_registered') else 'no'}"
         "</p>"
     )
+    add("</div>")
 
     # --- Income ---
     income = report["income"]
@@ -192,12 +234,14 @@ def render_report_html(report, owners=None, show_working=False):
     return "".join(parts)
 
 
-def render_report_pdf(report, owners=None, show_working=False):
-    """Return PDF bytes for the report."""
+def render_report_pdf(report, owners=None, show_working=False, image=None):
+    """Return PDF bytes for the report (``image`` becomes the top-right logo)."""
     try:
         from weasyprint import HTML
     except Exception as exc:  # pragma: no cover - environment dependent
         raise PdfUnavailable(f"PDF rendering is unavailable: {exc}") from exc
 
-    html = render_report_html(report, owners=owners, show_working=show_working)
+    html = render_report_html(
+        report, owners=owners, show_working=show_working, image=image
+    )
     return HTML(string=html).write_pdf()

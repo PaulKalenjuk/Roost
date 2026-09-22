@@ -108,6 +108,10 @@ tfoot td { font-weight: 700; }
 .totals { font-size: 16px; }
 .login { max-width: 360px; margin: 12vh auto; }
 .owner-row { display: grid; grid-template-columns: 2fr 1fr auto; gap: 8px; align-items: end; margin-bottom: 8px; }
+.prop-thumb {
+  display: block; max-height: 64px; max-width: 140px; padding: 2px;
+  border: 1px solid var(--line); border-radius: 8px; background: #fff;
+}
 
 /* Spinner for in-flight requests */
 .spinner {

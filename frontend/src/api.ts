@@ -63,6 +63,8 @@ export interface Property {
   gst_registered: boolean
   default_depreciation_method: 'diminishing_value' | 'prime_cost'
   notes: string
+  image: string | null
+  image_url: string | null
   let_share: string | null
   rental_area_share: string | null
   ownership_total: string

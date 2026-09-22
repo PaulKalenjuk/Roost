@@ -5,6 +5,7 @@ Run with::
     DB_ENGINE=sqlite python manage.py test ledger
 """
 from decimal import Decimal
+import base64
 import datetime as dt
 import io
 import json
@@ -576,6 +577,98 @@ class ApiBlankStringTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("name", response.json())
+
+
+# A real (tiny) PNG — WeasyPrint measures the real pixels, so fake bytes won't do.
+ONE_PIXEL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAJUlEQVR4nGPUr439z0ABYKJE86gB"
+    "EMDEQCFgGjWAYTQMGCgPAwB/zAIo4FJbbwAAAABJRU5ErkJggg=="
+)
+
+
+class PropertyImageTests(BaseLedgerTestCase):
+    """A property image is stored per property and printed on the FY report PDF."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.mkdtemp()
+        override = override_settings(MEDIA_ROOT=self.tmp)
+        override.enable()
+        self.addCleanup(override.disable)
+        user = User.objects.create_user("imgs", "img@example.com", "unused-pw")
+        self.api = APIClient()
+        self.api.force_login(user)
+
+    def _upload(self):
+        upload = SimpleUploadedFile("house.png", ONE_PIXEL_PNG, content_type="image/png")
+        response = self.api.patch(
+            f"/api/properties/{self.prop.id}/",
+            {"name": self.prop.name, "image": upload},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()
+
+    def test_upload_lands_in_media_and_is_exposed_as_a_url(self):
+        body = self._upload()
+        self.prop.refresh_from_db()
+        self.assertTrue(self.prop.image.name.startswith("properties/"))
+        self.assertTrue(Path(self.tmp).joinpath(self.prop.image.name).exists())
+        self.assertIn("properties/", body["image_url"])
+
+    def test_report_html_embeds_the_image_when_set(self):
+        self._upload()
+        self.prop.refresh_from_db()
+        report, owners = reports.owner_reports(self.prop, "FY2025-26", True)
+        html = pdf_renderer.render_report_html(report, owners, image=self.prop.image)
+        # Embedded (self-contained HTML), inside the top-right head block.
+        self.assertIn("data:image/png;base64,", html)
+        self.assertIn("class='prop-logo'", html)
+        self.assertIn("class='doc-head'", html)
+
+    def test_report_html_has_no_image_when_unset(self):
+        report, _owners = reports.owner_reports(self.prop, "FY2025-26", False)
+        html = pdf_renderer.render_report_html(report, image=self.prop.image)
+        # The CSS rule is always present; the element and data URI must not be.
+        self.assertNotIn("class='prop-logo'", html)
+        self.assertNotIn("data:image", html)
+
+    def test_unreadable_image_file_is_ignored(self):
+        """A vanished file must not break rendering."""
+        self._upload()
+        self.prop.refresh_from_db()
+        Path(self.tmp).joinpath(self.prop.image.name).unlink()
+        report, _owners = reports.owner_reports(self.prop, "FY2025-26", False)
+        html = pdf_renderer.render_report_html(report, image=self.prop.image)
+        self.assertNotIn("class='prop-logo'", html)
+
+    def test_clear_image_removes_the_stored_file(self):
+        self._upload()
+        self.prop.refresh_from_db()
+        stored = Path(self.tmp).joinpath(self.prop.image.name)
+        response = self.api.post(f"/api/properties/{self.prop.id}/clear-image/")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.prop.refresh_from_db()
+        self.assertFalse(self.prop.image)
+        self.assertFalse(stored.exists())
+        self.assertIsNone(response.json()["image_url"])
+
+    @unittest.skipUnless(_weasyprint_available(), "weasyprint not installed")
+    def test_pdf_puts_the_image_in_the_top_right(self):
+        import pdfplumber
+
+        self._upload()
+        response = self.api.get(
+            f"/api/reports/fy/pdf/?property={self.prop.id}&fy=FY2025-26"
+        )
+        self.assertEqual(response.status_code, 200, response.content[:200])
+        with pdfplumber.open(io.BytesIO(response.content)) as doc:
+            page = doc.pages[0]
+            self.assertTrue(page.images, "expected the logo to be drawn")
+            logo = page.images[0]
+            self.assertGreater(logo["x0"], page.width / 2)  # right-hand half
+            self.assertLess(logo["x1"], page.width)  # inside the margin
+            self.assertLess(logo["y0"], page.height / 4)  # near the top
 
 
 class ReceiptUploadTests(BaseLedgerTestCase):

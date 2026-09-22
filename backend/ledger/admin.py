@@ -43,7 +43,8 @@ class PropertyAdmin(admin.ModelAdmin):
     search_fields = ("name", "address")
     inlines = [PropertyOwnershipInline]
     fieldsets = (
-        (None, {"fields": ("name", "address", "purchase_date", "purchase_price")}),
+        (None, {"fields": ("name", "address", "purchase_date", "purchase_price",
+                            "image")}),
         ("Let share", {"fields": ("total_floor_area_sqm", "rental_floor_area_sqm",
                                    "let_percentage")}),
         ("Tax treatment", {"fields": ("gst_registered", "default_depreciation_method")}),

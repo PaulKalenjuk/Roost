@@ -115,6 +115,15 @@ class Property(TimestampedModel):
 
     notes = models.TextField(blank=True)
 
+    image = models.FileField(
+        upload_to="properties/%Y/%m/",
+        blank=True,
+        help_text=(
+            "Optional photo or mark for this property (PNG/JPG). When set, it is "
+            "printed top-right on the financial-year report PDF."
+        ),
+    )
+
     class Meta:
         verbose_name = "property"
         verbose_name_plural = "properties"

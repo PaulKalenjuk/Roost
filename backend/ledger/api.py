@@ -101,6 +101,14 @@ class PropertyViewSet(viewsets.ModelViewSet):
     queryset = Property.objects.all()
     serializer_class = PropertySerializer
 
+    @action(detail=True, methods=["post"], url_path="clear-image")
+    def clear_image(self, request, pk=None):
+        """Drop the property image (and its file) — empties the multipart dance."""
+        prop = self.get_object()
+        if prop.image:
+            prop.image.delete(save=True)
+        return Response(self.get_serializer(prop).data)
+
 
 class OwnerViewSet(viewsets.ModelViewSet):
     queryset = Owner.objects.all()
@@ -421,7 +429,10 @@ def fy_report_pdf(request):
     report, owners = reports.owner_reports(prop, label, recompute)
     try:
         payload = pdf.render_report_pdf(
-            report, owners if include_owners else [], show_working=show_working
+            report,
+            owners if include_owners else [],
+            show_working=show_working,
+            image=prop.image,
         )
     except pdf.PdfUnavailable as exc:
         return Response(
