@@ -156,111 +156,113 @@ function Categories() {
           utility types keep pointing at the same category, it just changes the label used in
           reports and exports.
         </p>
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Kind</th>
-              <th>Default apportionment</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((category) => {
-              const draft = drafts[category.id]
-              return draft ? (
-                <tr key={category.id} className="selected-row">
-                  <td>
-                    <input
-                      value={draft.name}
-                      onChange={(e) =>
-                        setDrafts({ ...drafts, [category.id]: { ...draft, name: e.target.value } })
-                      }
-                    />
-                  </td>
-                  <td>
-                    <select
-                      value={draft.kind}
-                      onChange={(e) =>
-                        setDrafts({ ...drafts, [category.id]: { ...draft, kind: e.target.value } })
-                      }
-                    >
-                      {CATEGORY_KIND_OPTIONS.map((k) => (
-                        <option key={k.value} value={k.value}>
-                          {k.label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    <select
-                      value={draft.default_apportionment}
-                      onChange={(e) =>
-                        setDrafts({
-                          ...drafts,
-                          [category.id]: { ...draft, default_apportionment: e.target.value },
-                        })
-                      }
-                    >
-                      <option value="none">Fully deductible</option>
-                      <option value="area">By floor area of the let</option>
-                      <option value="area_nights">By floor area × nights booked</option>
-                      <option value="custom">Custom %</option>
-                    </select>
-                  </td>
-                  <td>
-                    <div className="row">
-                      <button type="button" className="small" onClick={() => saveEdit(category.id)}>
-                        Save
-                      </button>
-                      <button
-                        type="button"
-                        className="ghost small"
-                        onClick={() => cancelEdit(category.id)}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                <tr key={category.id}>
-                  <td>{category.name}</td>
-                  <td>{CATEGORY_KIND_OPTIONS.find((k) => k.value === category.kind)?.label ?? category.kind}</td>
-                  <td>
-                    {APPORTION_LABELS[category.default_apportionment] ??
-                      category.default_apportionment}
-                  </td>
-                  <td>
-                    <div className="row">
-                      <button
-                        type="button"
-                        className="ghost small"
-                        onClick={() => startEdit(category)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="ghost small"
-                        onClick={() => remove(category)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-            {items.length === 0 ? (
+        <div className="tablewrap">
+          <table>
+            <thead>
               <tr>
-                <td colSpan={4} className="muted">
-                  No categories yet.
-                </td>
+                <th>Name</th>
+                <th>Kind</th>
+                <th>Default apportionment</th>
+                <th />
               </tr>
-            ) : null}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {items.map((category) => {
+                const draft = drafts[category.id]
+                return draft ? (
+                  <tr key={category.id} className="selected-row">
+                    <td>
+                      <input
+                        value={draft.name}
+                        onChange={(e) =>
+                          setDrafts({ ...drafts, [category.id]: { ...draft, name: e.target.value } })
+                        }
+                      />
+                    </td>
+                    <td>
+                      <select
+                        value={draft.kind}
+                        onChange={(e) =>
+                          setDrafts({ ...drafts, [category.id]: { ...draft, kind: e.target.value } })
+                        }
+                      >
+                        {CATEGORY_KIND_OPTIONS.map((k) => (
+                          <option key={k.value} value={k.value}>
+                            {k.label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <select
+                        value={draft.default_apportionment}
+                        onChange={(e) =>
+                          setDrafts({
+                            ...drafts,
+                            [category.id]: { ...draft, default_apportionment: e.target.value },
+                          })
+                        }
+                      >
+                        <option value="none">Fully deductible</option>
+                        <option value="area">By floor area of the let</option>
+                        <option value="area_nights">By floor area × nights booked</option>
+                        <option value="custom">Custom %</option>
+                      </select>
+                    </td>
+                    <td>
+                      <div className="row">
+                        <button type="button" className="small" onClick={() => saveEdit(category.id)}>
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost small"
+                          onClick={() => cancelEdit(category.id)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={category.id}>
+                    <td>{category.name}</td>
+                    <td>{CATEGORY_KIND_OPTIONS.find((k) => k.value === category.kind)?.label ?? category.kind}</td>
+                    <td>
+                      {APPORTION_LABELS[category.default_apportionment] ??
+                        category.default_apportionment}
+                    </td>
+                    <td>
+                      <div className="row">
+                        <button
+                          type="button"
+                          className="ghost small"
+                          onClick={() => startEdit(category)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost small"
+                          onClick={() => remove(category)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+              {items.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="muted">
+                    No categories yet.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
 
         {creating ? (
           <div className="row" style={{ marginTop: 12 }}>
@@ -594,52 +596,54 @@ function AdhocExpenses() {
 
       <div className="panel">
         <h2>Ad hoc expenses</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Category</th>
-              <th>Description</th>
-              <th className="num">Amount</th>
-              <th>Apportionment</th>
-              <th className="num">Claimable</th>
-              <th>Receipt</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((e) => (
-              <tr key={e.id} className={e.id === editingId ? 'selected-row' : ''}>
-                <td>{e.date}</td>
-                <td>{e.category_name}</td>
-                <td>{e.description || e.vendor || '—'}</td>
-                <td className="num">{money(e.amount)}</td>
-                <td>{APPORTION_LABELS[e.apportionment] ?? e.apportionment}</td>
-                <td className="num">{money(e.deductible_amount)}</td>
-                <td>
-                  <ReceiptCell expense={e} onUploaded={load} />
-                </td>
-                <td>
-                  <div className="row">
-                    <button type="button" className="ghost small" onClick={() => startEdit(e)}>
-                      Edit
-                    </button>
-                    <button type="button" className="ghost small" onClick={() => deleteExpense(e)}>
-                      Delete
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {items.length === 0 ? (
+        <div className="tablewrap">
+          <table>
+            <thead>
               <tr>
-                <td colSpan={8} className="muted">
-                  Nothing yet.
-                </td>
+                <th>Date</th>
+                <th>Category</th>
+                <th>Description</th>
+                <th className="num">Amount</th>
+                <th>Apportionment</th>
+                <th className="num">Claimable</th>
+                <th>Receipt</th>
+                <th />
               </tr>
-            ) : null}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {items.map((e) => (
+                <tr key={e.id} className={e.id === editingId ? 'selected-row' : ''}>
+                  <td>{e.date}</td>
+                  <td>{e.category_name}</td>
+                  <td>{e.description || e.vendor || '—'}</td>
+                  <td className="num">{money(e.amount)}</td>
+                  <td>{APPORTION_LABELS[e.apportionment] ?? e.apportionment}</td>
+                  <td className="num">{money(e.deductible_amount)}</td>
+                  <td>
+                    <ReceiptCell expense={e} onUploaded={load} />
+                  </td>
+                  <td>
+                    <div className="row">
+                      <button type="button" className="ghost small" onClick={() => startEdit(e)}>
+                        Edit
+                      </button>
+                      <button type="button" className="ghost small" onClick={() => deleteExpense(e)}>
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {items.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="muted">
+                    Nothing yet.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </div>
     </>
   )
@@ -1002,55 +1006,57 @@ function Utilities() {
           Add each utility you receive (electricity, water, internet…), how often the
           bill arrives, and how it's apportioned.
         </p>
-        <table>
-          <thead>
-            <tr>
-              <th>Utility</th>
-              <th>Category</th>
-              <th>Frequency</th>
-              <th>Supplier</th>
-              <th>Apportionment</th>
-              <th>Coverage</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {types.map((t) => (
-              <tr
-                key={t.id}
-                className={t.id === typeId ? 'selected-row' : ''}
-                style={{ cursor: 'pointer' }}
-                onClick={() => setTypeId(t.id)}
-              >
-                <td>{t.name}</td>
-                <td>{t.category_name}</td>
-                <td>{t.frequency}</td>
-                <td>{t.supplier || '—'}</td>
-                <td>{APPORTION_LABELS[t.apportionment] ?? t.apportionment}</td>
-                <td>
-                  <CoverageCell cov={covFor(t.id)} />
-                </td>
-                <td>
-                  <div className="row">
-                    <button type="button" className="ghost small" onClick={() => startEditType(t)}>
-                      Edit
-                    </button>
-                    <button type="button" className="ghost small" onClick={() => deleteType(t)}>
-                      Delete
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {types.length === 0 ? (
+        <div className="tablewrap">
+          <table>
+            <thead>
               <tr>
-                <td colSpan={7} className="muted">
-                  No utility types yet.
-                </td>
+                <th>Utility</th>
+                <th>Category</th>
+                <th>Frequency</th>
+                <th>Supplier</th>
+                <th>Apportionment</th>
+                <th>Coverage</th>
+                <th />
               </tr>
-            ) : null}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {types.map((t) => (
+                <tr
+                  key={t.id}
+                  className={t.id === typeId ? 'selected-row' : ''}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setTypeId(t.id)}
+                >
+                  <td>{t.name}</td>
+                  <td>{t.category_name}</td>
+                  <td>{t.frequency}</td>
+                  <td>{t.supplier || '—'}</td>
+                  <td>{APPORTION_LABELS[t.apportionment] ?? t.apportionment}</td>
+                  <td>
+                    <CoverageCell cov={covFor(t.id)} />
+                  </td>
+                  <td>
+                    <div className="row">
+                      <button type="button" className="ghost small" onClick={() => startEditType(t)}>
+                        Edit
+                      </button>
+                      <button type="button" className="ghost small" onClick={() => deleteType(t)}>
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {types.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="muted">
+                    No utility types yet.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
 
         {editingTypeId ? (
           <div className="hint" style={{ marginTop: 12 }}>
@@ -1150,34 +1156,36 @@ function Utilities() {
               {focused.gaps.length ? (
                 <>
                   <h3>Uncovered periods</h3>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>From</th>
-                        <th>To</th>
-                        <th className="num">Days</th>
-                        <th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {focused.gaps.map((g, i) => (
-                        <tr key={i}>
-                          <td>{g.start}</td>
-                          <td>{g.end}</td>
-                          <td className="num">{g.days}</td>
-                          <td>
-                            <button
-                              type="button"
-                              className="ghost small"
-                              onClick={() => prefillGap(g.start, g.end)}
-                            >
-                              Add bill for this gap
-                            </button>
-                          </td>
+                  <div className="tablewrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>From</th>
+                          <th>To</th>
+                          <th className="num">Days</th>
+                          <th />
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {focused.gaps.map((g, i) => (
+                          <tr key={i}>
+                            <td>{g.start}</td>
+                            <td>{g.end}</td>
+                            <td className="num">{g.days}</td>
+                            <td>
+                              <button
+                                type="button"
+                                className="ghost small"
+                                onClick={() => prefillGap(g.start, g.end)}
+                              >
+                                Add bill for this gap
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </>
               ) : (
                 <p className="muted" style={{ marginTop: 12 }}>
@@ -1303,67 +1311,69 @@ function Utilities() {
 
       <div className="panel">
         <h2>Bills</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Bill date</th>
-              <th>Period</th>
-              <th className="num">Amount</th>
-              <th className="num">Claimable</th>
-              <th>Bill</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {bills.map((b) => (
-              <tr key={b.id} className={b.id === editingBillId ? 'selected-row' : ''}>
-                <td>{b.bill_date ?? '—'}</td>
-                <td>
-                  {b.period_start ?? '?'} → {b.period_end ?? '?'}
-                </td>
-                <td className="num">{money(b.amount)}</td>
-                <td className="num">{money(b.claimable_amount)}</td>
-                <td>
-                  {b.attachment_url ? (
-                    <a href={b.attachment_url} target="_blank" rel="noreferrer">
-                      📎
-                    </a>
-                  ) : (
-                    '—'
-                  )}
-                </td>
-                <td>
-                  <div className="row">
-                    <button type="button" className="ghost small" onClick={() => startEdit(b)}>
-                      Edit
-                    </button>
-                    <button type="button" className="ghost small" onClick={() => deleteBill(b)}>
-                      Delete
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {bills.length === 0 ? (
+        <div className="tablewrap">
+          <table>
+            <thead>
               <tr>
-                <td colSpan={6} className="muted">
-                  No bills yet.
-                </td>
+                <th>Bill date</th>
+                <th>Period</th>
+                <th className="num">Amount</th>
+                <th className="num">Claimable</th>
+                <th>Bill</th>
+                <th />
               </tr>
+            </thead>
+            <tbody>
+              {bills.map((b) => (
+                <tr key={b.id} className={b.id === editingBillId ? 'selected-row' : ''}>
+                  <td>{b.bill_date ?? '—'}</td>
+                  <td>
+                    {b.period_start ?? '?'} → {b.period_end ?? '?'}
+                  </td>
+                  <td className="num">{money(b.amount)}</td>
+                  <td className="num">{money(b.claimable_amount)}</td>
+                  <td>
+                    {b.attachment_url ? (
+                      <a href={b.attachment_url} target="_blank" rel="noreferrer">
+                        📎
+                      </a>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td>
+                    <div className="row">
+                      <button type="button" className="ghost small" onClick={() => startEdit(b)}>
+                        Edit
+                      </button>
+                      <button type="button" className="ghost small" onClick={() => deleteBill(b)}>
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {bills.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="muted">
+                    No bills yet.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+            {bills.length ? (
+              <tfoot>
+                <tr>
+                  <td colSpan={2}>Total</td>
+                  <td className="num">{money(amountTotal)}</td>
+                  <td className="num">{money(claimTotal)}</td>
+                  <td />
+                  <td />
+                </tr>
+              </tfoot>
             ) : null}
-          </tbody>
-          {bills.length ? (
-            <tfoot>
-              <tr>
-                <td colSpan={2}>Total</td>
-                <td className="num">{money(amountTotal)}</td>
-                <td className="num">{money(claimTotal)}</td>
-                <td />
-                <td />
-              </tr>
-            </tfoot>
-          ) : null}
-        </table>
+          </table>
+        </div>
       </div>
     </>
   )

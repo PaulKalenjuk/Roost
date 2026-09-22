@@ -283,88 +283,92 @@ export default function Income() {
               Every earnings report you've imported is kept, so any figure can be traced
               back to the document it came from.
             </p>
-            <table>
-              <thead>
-                <tr>
-                  <th>Imported</th>
-                  <th>Period</th>
-                  <th>File</th>
-                  <th className="num">Months</th>
-                </tr>
-              </thead>
-              <tbody>
-                {imports.map((b) => (
-                  <tr key={b.id}>
-                    <td>{b.created_at?.slice(0, 10)}</td>
-                    <td>
-                      {b.period_start ?? '?'} → {b.period_end ?? '?'}
-                    </td>
-                    <td>
-                      {b.report_url ? (
-                        <a href={b.report_url} target="_blank" rel="noreferrer">
-                          {b.filename || 'earnings-report.pdf'}
-                        </a>
-                      ) : (
-                        <span className="muted">
-                          {b.filename || '—'} (no file kept)
-                        </span>
-                      )}
-                    </td>
-                    <td className="num">{b.rows_total}</td>
-                  </tr>
-                ))}
-                {imports.length === 0 ? (
+            <div className="tablewrap">
+              <table>
+                <thead>
                   <tr>
-                    <td colSpan={4} className="muted">
-                      No earnings reports imported yet.
-                    </td>
+                    <th>Imported</th>
+                    <th>Period</th>
+                    <th>File</th>
+                    <th className="num">Months</th>
                   </tr>
-                ) : null}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {imports.map((b) => (
+                    <tr key={b.id}>
+                      <td>{b.created_at?.slice(0, 10)}</td>
+                      <td>
+                        {b.period_start ?? '?'} → {b.period_end ?? '?'}
+                      </td>
+                      <td>
+                        {b.report_url ? (
+                          <a href={b.report_url} target="_blank" rel="noreferrer">
+                            {b.filename || 'earnings-report.pdf'}
+                          </a>
+                        ) : (
+                          <span className="muted">
+                            {b.filename || '—'} (no file kept)
+                          </span>
+                        )}
+                      </td>
+                      <td className="num">{b.rows_total}</td>
+                    </tr>
+                  ))}
+                  {imports.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="muted">
+                        No earnings reports imported yet.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {loading ? <Loading what="income" /> : null}
 
           <div className="panel">
             <h2>Monthly earnings</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>Month</th>
-                  <th className="num">Gross</th>
-                  <th className="num">Service fees</th>
-                  <th className="num">Net</th>
-                </tr>
-              </thead>
-              <tbody>
-                {earnings.map((e) => (
-                  <tr key={e.id}>
-                    <td>{e.month?.slice(0, 7)}</td>
-                    <td className="num">{money(e.gross_earnings)}</td>
-                    <td className="num">{money(e.service_fees)}</td>
-                    <td className="num">{money(e.total_earnings)}</td>
-                  </tr>
-                ))}
-                {earnings.length === 0 ? (
+            <div className="tablewrap">
+              <table>
+                <thead>
                   <tr>
-                    <td colSpan={4} className="muted">
-                      No monthly earnings imported yet.
-                    </td>
+                    <th>Month</th>
+                    <th className="num">Gross</th>
+                    <th className="num">Service fees</th>
+                    <th className="num">Net</th>
                   </tr>
+                </thead>
+                <tbody>
+                  {earnings.map((e) => (
+                    <tr key={e.id}>
+                      <td>{e.month?.slice(0, 7)}</td>
+                      <td className="num">{money(e.gross_earnings)}</td>
+                      <td className="num">{money(e.service_fees)}</td>
+                      <td className="num">{money(e.total_earnings)}</td>
+                    </tr>
+                  ))}
+                  {earnings.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="muted">
+                        No monthly earnings imported yet.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+                {earnings.length ? (
+                  <tfoot>
+                    <tr>
+                      <td>Total</td>
+                      <td className="num">{money(grossTotal)}</td>
+                      <td className="num">{money(feeTotal)}</td>
+                      <td className="num">{money(netTotal)}</td>
+                    </tr>
+                  </tfoot>
                 ) : null}
-              </tbody>
-              {earnings.length ? (
-                <tfoot>
-                  <tr>
-                    <td>Total</td>
-                    <td className="num">{money(grossTotal)}</td>
-                    <td className="num">{money(feeTotal)}</td>
-                    <td className="num">{money(netTotal)}</td>
-                  </tr>
-                </tfoot>
-              ) : null}
-            </table>
+              </table>
+            </div>
           </div>
 
           <div className="panel">
@@ -373,86 +377,88 @@ export default function Income() {
               Read from the earnings report when you import it. Edit and save if a figure needs
               correcting.
             </p>
-            <table>
-              <thead>
-                <tr>
-                  <th>Financial year</th>
-                  <th>Period</th>
-                  <th className="num">Nights booked</th>
-                  <th className="num">Avg night stay</th>
-                  <th className="num">Gross</th>
-                  <th className="num">Net</th>
-                </tr>
-              </thead>
-              {[...byFy.entries()].map(([fy, group]) => {
-                const totalNights = group.reduce((n, s) => n + (s.nights_booked ?? 0), 0)
-                const gross = group.reduce((n, s) => n + Number(s.gross_earnings), 0)
-                const net = group.reduce((n, s) => n + Number(s.total_earnings), 0)
-                return (
-                  <tbody key={fy}>
-                    <tr className="selected-row">
-                      <td>
-                        <strong>{fy}</strong>
-                      </td>
-                      <td className="muted">total</td>
-                      <td className="num">
-                        <strong>{totalNights}</strong>
-                      </td>
-                      <td className="num">—</td>
-                      <td className="num">{money(gross)}</td>
-                      <td className="num">{money(net)}</td>
-                    </tr>
-                    {group.map((s) => (
-                      <tr key={s.id}>
-                        <td className="muted">
-                          {s.period_start ?? '?'} → {s.period_end ?? '?'}
+            <div className="tablewrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Financial year</th>
+                    <th>Period</th>
+                    <th className="num">Nights booked</th>
+                    <th className="num">Avg night stay</th>
+                    <th className="num">Gross</th>
+                    <th className="num">Net</th>
+                  </tr>
+                </thead>
+                {[...byFy.entries()].map(([fy, group]) => {
+                  const totalNights = group.reduce((n, s) => n + (s.nights_booked ?? 0), 0)
+                  const gross = group.reduce((n, s) => n + Number(s.gross_earnings), 0)
+                  const net = group.reduce((n, s) => n + Number(s.total_earnings), 0)
+                  return (
+                    <tbody key={fy}>
+                      <tr className="selected-row">
+                        <td>
+                          <strong>{fy}</strong>
                         </td>
-                        <td />
+                        <td className="muted">total</td>
                         <td className="num">
-                          <input
-                            type="number"
-                            min="0"
-                            style={{ width: 90, display: 'inline-block' }}
-                            value={nightsDraft[s.id] ?? s.nights_booked ?? ''}
-                            onChange={(e) =>
-                              setNightsDraft({ ...nightsDraft, [s.id]: e.target.value })
-                            }
-                          />
-                          {nightsDraft[s.id] !== undefined ? (
+                          <strong>{totalNights}</strong>
+                        </td>
+                        <td className="num">—</td>
+                        <td className="num">{money(gross)}</td>
+                        <td className="num">{money(net)}</td>
+                      </tr>
+                      {group.map((s) => (
+                        <tr key={s.id}>
+                          <td className="muted">
+                            {s.period_start ?? '?'} → {s.period_end ?? '?'}
+                          </td>
+                          <td />
+                          <td className="num">
+                            <input
+                              type="number"
+                              min="0"
+                              style={{ width: 90, display: 'inline-block' }}
+                              value={nightsDraft[s.id] ?? s.nights_booked ?? ''}
+                              onChange={(e) =>
+                                setNightsDraft({ ...nightsDraft, [s.id]: e.target.value })
+                              }
+                            />
+                            {nightsDraft[s.id] !== undefined ? (
+                              <button
+                                type="button"
+                                className="ghost small"
+                                onClick={() => saveNights(s.id)}
+                              >
+                                Save
+                              </button>
+                            ) : null}
                             <button
                               type="button"
                               className="ghost small"
-                              onClick={() => saveNights(s.id)}
+                              onClick={() => deleteSummary(s)}
                             >
-                              Save
+                              Delete
                             </button>
-                          ) : null}
-                          <button
-                            type="button"
-                            className="ghost small"
-                            onClick={() => deleteSummary(s)}
-                          >
-                            Delete
-                          </button>
-                        </td>
-                        <td className="num">{s.avg_night_stay ?? '—'}</td>
-                        <td className="num">{money(s.gross_earnings)}</td>
-                        <td className="num">{money(s.total_earnings)}</td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="num">{s.avg_night_stay ?? '—'}</td>
+                          <td className="num">{money(s.gross_earnings)}</td>
+                          <td className="num">{money(s.total_earnings)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  )
+                })}
+                {summaries.length === 0 ? (
+                  <tbody>
+                    <tr>
+                      <td colSpan={6} className="muted">
+                        Nothing yet — import an earnings report above, or add a year below.
+                      </td>
+                    </tr>
                   </tbody>
-                )
-              })}
-              {summaries.length === 0 ? (
-                <tbody>
-                  <tr>
-                    <td colSpan={6} className="muted">
-                      Nothing yet — import an earnings report above, or add a year below.
-                    </td>
-                  </tr>
-                </tbody>
-              ) : null}
-            </table>
+                ) : null}
+              </table>
+            </div>
 
             <h3>Add or correct a financial year</h3>
             <div className="row">
@@ -502,38 +508,40 @@ export default function Income() {
 
           <div className="panel">
             <h2>Reservations (from CSV import)</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>Confirmation</th>
-                  <th>Guest</th>
-                  <th>Check-in</th>
-                  <th>Nights</th>
-                  <th className="num">Gross</th>
-                  <th className="num">Net</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reservations.map((r) => (
-                  <tr key={r.id}>
-                    <td>{r.confirmation_code}</td>
-                    <td>{r.guest_name || '—'}</td>
-                    <td>{r.check_in ?? '—'}</td>
-                    <td>{r.nights ?? '—'}</td>
-                    <td className="num">{money(r.gross_earnings)}</td>
-                    <td className="num">{money(r.net_payout)}</td>
-                  </tr>
-                ))}
-                {reservations.length === 0 ? (
+            <div className="tablewrap">
+              <table>
+                <thead>
                   <tr>
-                    <td colSpan={6} className="muted">
-                      No reservations yet (import a transaction CSV via the Django
-                      admin, or wait for the CSV importer in this UI).
-                    </td>
+                    <th>Confirmation</th>
+                    <th>Guest</th>
+                    <th>Check-in</th>
+                    <th>Nights</th>
+                    <th className="num">Gross</th>
+                    <th className="num">Net</th>
                   </tr>
-                ) : null}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {reservations.map((r) => (
+                    <tr key={r.id}>
+                      <td>{r.confirmation_code}</td>
+                      <td>{r.guest_name || '—'}</td>
+                      <td>{r.check_in ?? '—'}</td>
+                      <td>{r.nights ?? '—'}</td>
+                      <td className="num">{money(r.gross_earnings)}</td>
+                      <td className="num">{money(r.net_payout)}</td>
+                    </tr>
+                  ))}
+                  {reservations.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="muted">
+                        No reservations yet (import a transaction CSV via the Django
+                        admin, or wait for the CSV importer in this UI).
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       ) : null}

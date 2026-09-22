@@ -115,6 +115,11 @@ units, its own network (`roost.network`) and volumes, port **8686**. See
 | **Depreciating assets** | asset register + built schedules, receipt upload, rebuild schedules |
 | **Reporting** | per-FY report with the maths shown, optional per-owner split |
 
+It works on a phone as well as a desktop: below **880px** the left menu collapses
+into an off-canvas drawer opened from a sticky top bar (close it with the ✕, the
+dimmed backdrop, or Escape), form rows stack, and wide tables scroll sideways
+inside their panel instead of squashing into unreadable columns.
+
 Utilities: create a **utility type** (name, category, frequency — monthly/quarterly/
 half-yearly/yearly), then upload each **bill**. The claimable portion is
 calculated automatically from the let share.

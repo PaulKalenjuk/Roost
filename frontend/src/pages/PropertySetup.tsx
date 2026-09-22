@@ -479,31 +479,33 @@ export default function PropertySetup() {
 
           <div className="panel">
             <h2>Listings</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Platform</th>
-                  <th>Listing ID</th>
-                </tr>
-              </thead>
-              <tbody>
-                {listings.map((l) => (
-                  <tr key={l.id}>
-                    <td>{l.name}</td>
-                    <td>{l.platform}</td>
-                    <td>{l.external_id || '—'}</td>
-                  </tr>
-                ))}
-                {listings.length === 0 ? (
+            <div className="tablewrap">
+              <table>
+                <thead>
                   <tr>
-                    <td colSpan={3} className="muted">
-                      No listings yet.
-                    </td>
+                    <th>Name</th>
+                    <th>Platform</th>
+                    <th>Listing ID</th>
                   </tr>
-                ) : null}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {listings.map((l) => (
+                    <tr key={l.id}>
+                      <td>{l.name}</td>
+                      <td>{l.platform}</td>
+                      <td>{l.external_id || '—'}</td>
+                    </tr>
+                  ))}
+                  {listings.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="muted">
+                        No listings yet.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
             <div className="row" style={{ marginTop: 12 }}>
               <div>
                 <label>Listing name</label>

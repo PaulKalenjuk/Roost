@@ -182,92 +182,98 @@ export default function Reporting() {
             </p>
 
             <h3>Income</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>Month</th>
-                  <th className="num">Gross</th>
-                  <th className="num">Service fees</th>
-                  <th className="num">Net</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.income.months.map((m) => (
-                  <tr key={m.month}>
-                    <td>{String(m.month).slice(0, 7)}</td>
-                    <td className="num">{money(m.gross_earnings)}</td>
-                    <td className="num">{money(m.service_fees)}</td>
-                    <td className="num">{money(m.total_earnings)}</td>
+            <div className="tablewrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th className="num">Gross</th>
+                    <th className="num">Service fees</th>
+                    <th className="num">Net</th>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td>Net income ({report.income.nights_booked} nights)</td>
-                  <td className="num">{money(report.income.gross_earnings)}</td>
-                  <td className="num">{money(report.income.service_fees)}</td>
-                  <td className="num">{money(report.income.total_earnings)}</td>
-                </tr>
-              </tfoot>
-            </table>
+                </thead>
+                <tbody>
+                  {report.income.months.map((m) => (
+                    <tr key={m.month}>
+                      <td>{String(m.month).slice(0, 7)}</td>
+                      <td className="num">{money(m.gross_earnings)}</td>
+                      <td className="num">{money(m.service_fees)}</td>
+                      <td className="num">{money(m.total_earnings)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td>Net income ({report.income.nights_booked} nights)</td>
+                    <td className="num">{money(report.income.gross_earnings)}</td>
+                    <td className="num">{money(report.income.service_fees)}</td>
+                    <td className="num">{money(report.income.total_earnings)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
 
             <h3>Expenses (claimable portion)</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>Category</th>
-                  <th className="num">Amount</th>
-                  <th className="num">Claimable</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(report.expenses.by_category).map(([name, v]) => (
-                  <tr key={name}>
-                    <td>{name}</td>
-                    <td className="num">{money(v.amount)}</td>
-                    <td className="num">{money(v.deductible)}</td>
+            <div className="tablewrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Category</th>
+                    <th className="num">Amount</th>
+                    <th className="num">Claimable</th>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td>Total claimable</td>
-                  <td className="num">{money(report.expenses.total_amount)}</td>
-                  <td className="num">{money(report.expenses.total_deductible)}</td>
-                </tr>
-              </tfoot>
-            </table>
+                </thead>
+                <tbody>
+                  {Object.entries(report.expenses.by_category).map(([name, v]) => (
+                    <tr key={name}>
+                      <td>{name}</td>
+                      <td className="num">{money(v.amount)}</td>
+                      <td className="num">{money(v.deductible)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td>Total claimable</td>
+                    <td className="num">{money(report.expenses.total_amount)}</td>
+                    <td className="num">{money(report.expenses.total_deductible)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
 
             {working && report.expenses.items.length ? (
               <>
                 <h3>Expenses — working</h3>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Category</th>
-                      <th>Description</th>
-                      <th className="num">Amount</th>
-                      <th>Basis</th>
-                      <th className="num">Claimable</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {report.expenses.items.map((item, i) => (
-                      <tr key={i}>
-                        <td>{item.date}</td>
-                        <td>{item.category}</td>
-                        <td>{item.description || '—'}</td>
-                        <td className="num">{money(item.amount)}</td>
-                        <td>
-                          {item.apportionment}
-                          {item.working ? <div className="working">{item.working}</div> : null}
-                        </td>
-                        <td className="num">{money(item.deductible_amount)}</td>
+                <div className="tablewrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Category</th>
+                        <th>Description</th>
+                        <th className="num">Amount</th>
+                        <th>Basis</th>
+                        <th className="num">Claimable</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {report.expenses.items.map((item, i) => (
+                        <tr key={i}>
+                          <td>{item.date}</td>
+                          <td>{item.category}</td>
+                          <td>{item.description || '—'}</td>
+                          <td className="num">{money(item.amount)}</td>
+                          <td>
+                            {item.apportionment}
+                            {item.working ? <div className="working">{item.working}</div> : null}
+                          </td>
+                          <td className="num">{money(item.deductible_amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </>
             ) : null}
 
@@ -278,38 +284,40 @@ export default function Reporting() {
             ) : null}
 
             <h3>Depreciation</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>Asset</th>
-                  <th>Method</th>
-                  <th className="num">Opening</th>
-                  <th className="num">Business use</th>
-                  <th className="num">Deduction</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.depreciation.lines.map((l, i) => (
-                  <tr key={i}>
-                    <td>
-                      {l.asset}
-                      {working && l.working ? <div className="working">{l.working}</div> : null}
-                    </td>
-                    <td>{l.method}</td>
-                    <td className="num">{money(l.opening_value)}</td>
-                    <td className="num">{pct(l.business_use_pct)}</td>
-                    <td className="num">{money(l.deduction)}</td>
-                  </tr>
-                ))}
-                {report.depreciation.lines.length === 0 ? (
+            <div className="tablewrap">
+              <table>
+                <thead>
                   <tr>
-                    <td colSpan={5} className="muted">
-                      No depreciation entries.
-                    </td>
+                    <th>Asset</th>
+                    <th>Method</th>
+                    <th className="num">Opening</th>
+                    <th className="num">Business use</th>
+                    <th className="num">Deduction</th>
                   </tr>
-                ) : null}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {report.depreciation.lines.map((l, i) => (
+                    <tr key={i}>
+                      <td>
+                        {l.asset}
+                        {working && l.working ? <div className="working">{l.working}</div> : null}
+                      </td>
+                      <td>{l.method}</td>
+                      <td className="num">{money(l.opening_value)}</td>
+                      <td className="num">{pct(l.business_use_pct)}</td>
+                      <td className="num">{money(l.deduction)}</td>
+                    </tr>
+                  ))}
+                  {report.depreciation.lines.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="muted">
+                        No depreciation entries.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
 
             <h2 className="totals" style={{ marginTop: 18 }}>
               Net rental result: {money(report.net_rental_result)}
@@ -324,36 +332,38 @@ export default function Reporting() {
                   <h3>
                     {o.owner} <span className="badge ok">{pct(o.share)}</span>
                   </h3>
-                  <table>
-                    <tbody>
-                      <tr>
-                        <td>Income (net)</td>
-                        <td className="num">{money(o.income.total_earnings)}</td>
-                      </tr>
-                      {Object.entries(o.expenses_by_category).map(([name, v]) => (
-                        <tr key={name}>
-                          <td className="muted">— {name}</td>
-                          <td className="num">{money(v.deductible)}</td>
+                  <div className="tablewrap">
+                    <table>
+                      <tbody>
+                        <tr>
+                          <td>Income (net)</td>
+                          <td className="num">{money(o.income.total_earnings)}</td>
                         </tr>
-                      ))}
-                      <tr>
-                        <td>Expenses (claimable)</td>
-                        <td className="num">{money(o.expenses_deductible)}</td>
-                      </tr>
-                      <tr>
-                        <td>Depreciation</td>
-                        <td className="num">{money(o.depreciation)}</td>
-                      </tr>
-                      <tr>
-                        <td>
-                          <strong>Net rental result</strong>
-                        </td>
-                        <td className="num">
-                          <strong>{money(o.net_rental_result)}</strong>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
+                        {Object.entries(o.expenses_by_category).map(([name, v]) => (
+                          <tr key={name}>
+                            <td className="muted">— {name}</td>
+                            <td className="num">{money(v.deductible)}</td>
+                          </tr>
+                        ))}
+                        <tr>
+                          <td>Expenses (claimable)</td>
+                          <td className="num">{money(o.expenses_deductible)}</td>
+                        </tr>
+                        <tr>
+                          <td>Depreciation</td>
+                          <td className="num">{money(o.depreciation)}</td>
+                        </tr>
+                        <tr>
+                          <td>
+                            <strong>Net rental result</strong>
+                          </td>
+                          <td className="num">
+                            <strong>{money(o.net_rental_result)}</strong>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               ))}
             </div>

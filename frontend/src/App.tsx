@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Route, Routes } from 'react-router-dom'
+import { NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { api, ensureCsrf } from './api'
 import { Alert, Field } from './components'
 import { PropertyProvider } from './store'
@@ -15,9 +15,41 @@ interface Me {
   is_staff: boolean
 }
 
+const NAV = [
+  { to: '/', label: 'Property setup', end: true },
+  { to: '/income', label: 'Income' },
+  { to: '/expenses', label: 'Expenses' },
+  { to: '/assets', label: 'Depreciating assets' },
+  { to: '/reporting', label: 'Reporting' },
+]
+
 export default function App() {
   const [me, setMe] = useState<Me | null>(null)
   const [loading, setLoading] = useState(true)
+  // On narrow screens the nav is an off-canvas drawer; on desktop it's always
+  // visible (the drawer classes simply have no effect above the breakpoint).
+  const [navOpen, setNavOpen] = useState(false)
+  const location = useLocation()
+
+  // Close the drawer on every navigation, so a tap doesn't leave it covering
+  // the page you just opened.
+  useEffect(() => {
+    setNavOpen(false)
+  }, [location.pathname])
+
+  // Escape closes it, and the page behind must not scroll while it's open.
+  useEffect(() => {
+    if (!navOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setNavOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = ''
+    }
+  }, [navOpen])
 
   const refresh = async () => {
     try {
@@ -40,25 +72,40 @@ export default function App() {
   return (
     <PropertyProvider>
       <div className="shell">
-        <aside className="sidebar">
+        <header className="topbar">
+          <button
+            type="button"
+            className="menu-toggle"
+            onClick={() => setNavOpen((open) => !open)}
+            aria-label={navOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={navOpen}
+            aria-controls="roost-nav"
+          >
+            <span aria-hidden="true">{navOpen ? '✕' : '☰'}</span>
+          </button>
           <div className="brand">
             Roost<span>.</span>
           </div>
-          <NavLink className="navlink" to="/" end>
-            Property setup
-          </NavLink>
-          <NavLink className="navlink" to="/income">
-            Income
-          </NavLink>
-          <NavLink className="navlink" to="/expenses">
-            Expenses
-          </NavLink>
-          <NavLink className="navlink" to="/assets">
-            Depreciating assets
-          </NavLink>
-          <NavLink className="navlink" to="/reporting">
-            Reporting
-          </NavLink>
+        </header>
+        <aside id="roost-nav" className={`sidebar${navOpen ? ' open' : ''}`}>
+          <div className="sidebar-head">
+            <div className="brand">
+              Roost<span>.</span>
+            </div>
+            <button
+              type="button"
+              className="nav-close"
+              aria-label="Close menu"
+              onClick={() => setNavOpen(false)}
+            >
+              <span aria-hidden="true">✕</span>
+            </button>
+          </div>
+          {NAV.map((item) => (
+            <NavLink key={item.to} className="navlink" to={item.to} end={item.end}>
+              {item.label}
+            </NavLink>
+          ))}
           <div className="spacer" />
           <div className="who">Signed in as {me.username}</div>
           <a className="navlink" href="/admin/">
@@ -74,6 +121,14 @@ export default function App() {
             Sign out
           </button>
         </aside>
+        {navOpen ? (
+          <button
+            type="button"
+            className="backdrop"
+            aria-label="Close menu"
+            onClick={() => setNavOpen(false)}
+          />
+        ) : null}
         <main className="main">
           <Routes>
             <Route path="/" element={<PropertySetup />} />

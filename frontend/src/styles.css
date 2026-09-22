@@ -29,6 +29,14 @@ a { color: var(--accent); }
   width: 220px; flex: none; background: #14201b; color: #e7efe9;
   padding: 18px 14px; display: flex; flex-direction: column; gap: 6px;
 }
+/* Mobile-only chrome: a sticky top bar with the drawer toggle. Hidden on
+   desktop, where the sidebar is permanent. */
+.topbar { display: none; }
+.menu-toggle { display: none; }
+.nav-close { display: none; }
+.sidebar-head { display: flex; align-items: center; justify-content: space-between; }
+.backdrop { display: none; }
+.tablewrap { max-width: 100%; }
 .brand { font-size: 20px; font-weight: 700; letter-spacing: .5px; margin: 4px 6px 16px; }
 .brand span { color: #7fd3a8; }
 .navlink {
@@ -40,7 +48,7 @@ a { color: var(--accent); }
 .sidebar .spacer { flex: 1; }
 .sidebar .who { font-size: 12px; color: #93a89c; padding: 8px 12px; }
 
-.main { flex: 1; padding: 26px 32px; max-width: 1100px; }
+.main { flex: 1; min-width: 0; padding: 26px 32px; max-width: 1100px; }
 h1 { font-size: 22px; margin: 0 0 4px; }
 h2 { font-size: 17px; margin: 26px 0 10px; }
 h3 { font-size: 15px; margin: 18px 0 8px; }
@@ -117,3 +125,73 @@ tfoot td { font-weight: 700; }
 .covseg.covered { background: var(--accent); }
 .covseg.gap { background: repeating-linear-gradient(45deg, #f3b0ad, #f3b0ad 6px, #f8cbc9 6px, #f8cbc9 12px); }
 tr.selected-row { background: #f2f8f5; }
+
+/* ---------------------------------------------------------------------------
+   Narrow screens: the left menu becomes a drawer, tables scroll sideways and
+   form rows stack. Breakpoint is 880px — below that the 220px sidebar plus a
+   usable content column no longer fit comfortably.
+   --------------------------------------------------------------------------- */
+@media (max-width: 880px) {
+  body { -webkit-text-size-adjust: 100%; }
+
+  /* Sidebar leaves the flow; the top bar sits above the content instead. */
+  .shell { flex-direction: column; }
+
+  .topbar {
+    display: flex; align-items: center; gap: 10px;
+    position: sticky; top: 0; z-index: 30;
+    padding: 9px 12px; background: #14201b; color: #e7efe9;
+  }
+  .topbar .brand { margin: 0; font-size: 18px; }
+  .menu-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; padding: 0; font-size: 18px; line-height: 1;
+    background: #1e2f28; border: 1px solid #2b403a; color: #e7efe9;
+    border-radius: 8px; cursor: pointer;
+  }
+
+  /* Off-canvas sidebar: slides in over the page, scrolls on its own. */
+  .sidebar {
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: 40;
+    width: min(80vw, 280px); overflow-y: auto; overflow-x: hidden;
+    padding-bottom: 28px;
+    transform: translateX(-100%);
+    transition: transform .22s ease;
+  }
+  .sidebar.open { transform: none; box-shadow: 0 12px 40px rgba(0, 0, 0, .35); }
+  .sidebar .navlink { padding: 12px; }
+  /* The drawer covers the top bar, so give it its own close control. */
+  .nav-close {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; padding: 0; font-size: 16px; line-height: 1;
+    background: #1e2f28; border: 1px solid #2b403a; color: #e7efe9;
+    border-radius: 8px; cursor: pointer;
+  }
+
+  .backdrop {
+    display: block; position: fixed; inset: 0; z-index: 35;
+    margin: 0; padding: 0; border: 0;
+    background: rgba(9, 16, 13, .5); cursor: pointer;
+  }
+
+  .main { padding: 14px 14px 40px; }
+  .panel { padding: 14px; }
+  .login { margin: 7vh auto; }
+
+  /* 16px keeps iOS Safari from zooming the whole page when a field is focused. */
+  input, select, textarea { font-size: 16px; }
+
+  /* Form rows stack; inline pickers/badges (spans) stay side by side. */
+  .row > div, .row > button, .row > select, .row > input { flex: 1 1 100%; min-width: 0; }
+
+  .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
+  .tab { white-space: nowrap; flex: none; }
+  .owner-row { grid-template-columns: 1fr; }
+
+  /* Wide tables keep their columns and scroll sideways rather than squashing
+     into tall, hard-to-scan rows. */
+  .tablewrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tablewrap th, .tablewrap td { white-space: nowrap; }
+
+  h1 { font-size: 20px; }
+}

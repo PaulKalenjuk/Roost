@@ -302,97 +302,99 @@ export default function Assets() {
             Rebuild all schedules
           </button>
         </div>
-        <table style={{ marginTop: 12 }}>
-          <thead>
-            <tr>
-              <th>Asset</th>
-              <th>Photo</th>
-              <th>Date</th>
-              <th className="num">Cost</th>
-              <th>Method</th>
-              <th className="num">Business use</th>
-              <th className="num">Latest deduction</th>
-              <th>Receipt</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((a) => {
-              const latest = a.depreciation_entries?.[a.depreciation_entries.length - 1]
-              return (
-                <tr key={a.id} className={a.id === editingAssetId ? 'selected-row' : ''}>
-                  <td>
-                    {a.name}
-                    {a.effective_life_is_estimate ? (
-                      <>
-                        {' '}
-                        <span
-                          className="badge warn"
-                          title="Effective life was estimated (AI) — verify against the ATO schedule"
-                        >
-                          est. life
-                        </span>
-                      </>
-                    ) : null}
-                  </td>
-                  <td>
-                    {a.image_url ? (
-                      <a href={a.image_url} target="_blank" rel="noreferrer">
-                        <img
-                          src={a.image_url}
-                          alt={a.name}
-                          style={{
-                            width: 44,
-                            height: 44,
-                            objectFit: 'cover',
-                            borderRadius: 6,
-                            border: '1px solid var(--line)',
-                            display: 'block',
-                          }}
-                        />
-                      </a>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td>{a.purchase_date}</td>
-                  <td className="num">{money(a.cost)}</td>
-                  <td>{a.method === 'prime_cost' ? 'Prime cost' : 'Diminishing'}</td>
-                  <td className="num">{pct(a.business_use_pct)}</td>
-                  <td className="num">
-                    {latest ? (
-                      <>
-                        {money(latest.deduction)} <span className="muted">({latest.financial_year})</span>
-                      </>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td>
-                    <AssetReceiptCell asset={a} onUploaded={load} />
-                  </td>
-                  <td>
-                    <div className="row">
-                      <button type="button" className="ghost small" onClick={() => startEdit(a)}>
-                        Edit
-                      </button>
-                      <button type="button" className="ghost small" onClick={() => deleteAsset(a)}>
-                        Delete
-                      </button>
-                    </div>
+        <div className="tablewrap">
+          <table style={{ marginTop: 12 }}>
+            <thead>
+              <tr>
+                <th>Asset</th>
+                <th>Photo</th>
+                <th>Date</th>
+                <th className="num">Cost</th>
+                <th>Method</th>
+                <th className="num">Business use</th>
+                <th className="num">Latest deduction</th>
+                <th>Receipt</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((a) => {
+                const latest = a.depreciation_entries?.[a.depreciation_entries.length - 1]
+                return (
+                  <tr key={a.id} className={a.id === editingAssetId ? 'selected-row' : ''}>
+                    <td>
+                      {a.name}
+                      {a.effective_life_is_estimate ? (
+                        <>
+                          {' '}
+                          <span
+                            className="badge warn"
+                            title="Effective life was estimated (AI) — verify against the ATO schedule"
+                          >
+                            est. life
+                          </span>
+                        </>
+                      ) : null}
+                    </td>
+                    <td>
+                      {a.image_url ? (
+                        <a href={a.image_url} target="_blank" rel="noreferrer">
+                          <img
+                            src={a.image_url}
+                            alt={a.name}
+                            style={{
+                              width: 44,
+                              height: 44,
+                              objectFit: 'cover',
+                              borderRadius: 6,
+                              border: '1px solid var(--line)',
+                              display: 'block',
+                            }}
+                          />
+                        </a>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td>{a.purchase_date}</td>
+                    <td className="num">{money(a.cost)}</td>
+                    <td>{a.method === 'prime_cost' ? 'Prime cost' : 'Diminishing'}</td>
+                    <td className="num">{pct(a.business_use_pct)}</td>
+                    <td className="num">
+                      {latest ? (
+                        <>
+                          {money(latest.deduction)} <span className="muted">({latest.financial_year})</span>
+                        </>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td>
+                      <AssetReceiptCell asset={a} onUploaded={load} />
+                    </td>
+                    <td>
+                      <div className="row">
+                        <button type="button" className="ghost small" onClick={() => startEdit(a)}>
+                          Edit
+                        </button>
+                        <button type="button" className="ghost small" onClick={() => deleteAsset(a)}>
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+              {items.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="muted">
+                    No assets yet — add one above (attach its purchase receipt if you have it).
                   </td>
                 </tr>
-              )
-            })}
-            {items.length === 0 ? (
-              <tr>
-                <td colSpan={9} className="muted">
-                  No assets yet — add one above (attach its purchase receipt if you have it).
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </div>
     </>
   )
