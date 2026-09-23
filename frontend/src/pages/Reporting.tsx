@@ -316,6 +316,17 @@ export default function Reporting() {
                     </tr>
                   ) : null}
                 </tbody>
+                {report.depreciation.lines.length ? (
+                  <tfoot>
+                    <tr>
+                      <td>Total depreciation</td>
+                      <td></td>
+                      <td></td>
+                      <td></td>
+                      <td className="num">{money(report.depreciation.total_deduction)}</td>
+                    </tr>
+                  </tfoot>
+                ) : null}
               </table>
             </div>
 
