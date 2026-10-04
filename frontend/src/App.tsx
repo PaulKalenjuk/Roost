@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Route, Routes, useLocation } from 'react-router-dom'
+import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { api, ensureCsrf } from './api'
 import { Alert, Field } from './components'
 import { PropertyProvider } from './store'
@@ -17,12 +17,12 @@ interface Me {
 }
 
 const NAV = [
-  { to: '/', label: 'Property setup', end: true },
+  { to: '/', label: 'Receipts', end: true },
   { to: '/income', label: 'Income' },
   { to: '/expenses', label: 'Expenses' },
-  { to: '/receipts', label: 'Receipts' },
   { to: '/assets', label: 'Depreciating assets' },
   { to: '/reporting', label: 'Reporting' },
+  { to: '/setup', label: 'Property setup' },
 ]
 
 export default function App() {
@@ -133,10 +133,11 @@ export default function App() {
         ) : null}
         <main className="main">
           <Routes>
-            <Route path="/" element={<PropertySetup />} />
+            <Route path="/" element={<Receipts />} />
             <Route path="/income" element={<Income />} />
             <Route path="/expenses" element={<Expenses />} />
-            <Route path="/receipts" element={<Receipts />} />
+            <Route path="/receipts" element={<Navigate to="/" replace />} />
+            <Route path="/setup" element={<PropertySetup />} />
             <Route path="/assets" element={<Assets />} />
             <Route path="/reporting" element={<Reporting />} />
           </Routes>

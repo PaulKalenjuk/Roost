@@ -112,7 +112,9 @@ units, its own network (`roost.network`) and volumes, port **8686**. See
 
 ## Front-end (TypeScript SPA)
 
-`frontend/` is a **Vite + React + TypeScript** app with six sections:
+`frontend/` is a **Vite + React + TypeScript** app. It opens on **Receipts**
+(the capture/queue), with **Property setup** on its own `/setup` page; the
+sections:
 
 | Section | What it does |
 | --- | --- |
