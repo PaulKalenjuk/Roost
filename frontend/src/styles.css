@@ -39,6 +39,14 @@ a { color: var(--accent); }
 .tablewrap { max-width: 100%; }
 .brand { font-size: 20px; font-weight: 700; letter-spacing: .5px; margin: 4px 6px 16px; }
 .brand span { color: #7fd3a8; }
+.brand-logo {
+  width: 24px; height: 24px; border-radius: 7px; object-fit: cover;
+  vertical-align: -6px; margin-right: 8px; background: #0d1512;
+}
+.login-logo {
+  display: block; width: 76px; height: 76px; margin: 0 auto 12px;
+  border-radius: 18px; object-fit: cover;
+}
 .navlink {
   display: block; padding: 9px 12px; border-radius: 8px; color: #cfe0d6;
   text-decoration: none; font-weight: 500;

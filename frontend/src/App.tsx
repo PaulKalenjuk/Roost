@@ -86,12 +86,14 @@ export default function App() {
             <span aria-hidden="true">{navOpen ? '✕' : '☰'}</span>
           </button>
           <div className="brand">
+            <img className="brand-logo" src="/logo.png" alt="" />
             Roost<span>.</span>
           </div>
         </header>
         <aside id="roost-nav" className={`sidebar${navOpen ? ' open' : ''}`}>
           <div className="sidebar-head">
             <div className="brand">
+              <img className="brand-logo" src="/logo.png" alt="" />
               Roost<span>.</span>
             </div>
             <button
@@ -172,6 +174,7 @@ function Login({ onDone }: { onDone: () => void }) {
 
   return (
     <form className="login panel" onSubmit={submit}>
+      <img className="login-logo" src="/logo.png" alt="" />
       <h1>Roost</h1>
       <p className="sub">Sign in to manage your short-stay ledger.</p>
       {error ? <Alert kind="err">{error}</Alert> : null}
