@@ -167,3 +167,6 @@ DEEPSEEK_VISION_BASE_URL = env(
 SPA_ROOT = BASE_DIR / "spa"
 WHITENOISE_ROOT = SPA_ROOT
 WHITENOISE_INDEX_FILE = True
+# WhiteNoise doesn't know .webmanifest → serve it with the type Chrome expects,
+# otherwise the PWA manifest may be ignored (and the app won't be installable).
+WHITENOISE_MIMETYPES = {".webmanifest": "application/manifest+json"}
