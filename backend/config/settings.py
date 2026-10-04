@@ -125,6 +125,13 @@ if not DEBUG:
     CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=False)
     SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=False)
 
+# Behind a TLS-terminating proxy (Cloudflare Tunnel, nginx…): trust the
+# X-Forwarded-Proto header so request.is_secure() and build_absolute_uri() yield
+# https URLs — otherwise media URLs come back as http:// and browsers block them
+# as mixed content on the https page.
+if env.bool("TRUST_PROXY_HEADERS", default=False):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 # Sensible base for admin links in emails/logs
 LOGIN_REDIRECT_URL = "/admin/"
 
