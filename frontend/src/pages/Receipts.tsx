@@ -41,6 +41,95 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   })
 }
 
+/** Downscale a picked photo during decode so a 48MP phone shot can't exhaust
+ *  memory, and normalise everything to a right-sized JPEG object URL. */
+async function prepareFromFile(file: File): Promise<string> {
+  try {
+    if (typeof createImageBitmap === 'function') {
+      const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' })
+      const scale = Math.min(1, MAX_W / bmp.width, MAX_H / bmp.height)
+      const w = Math.max(1, Math.round(bmp.width * scale))
+      const h = Math.max(1, Math.round(bmp.height * scale))
+      const canvas = document.createElement('canvas')
+      canvas.width = w
+      canvas.height = h
+      canvas.getContext('2d')!.drawImage(bmp, 0, 0, w, h)
+      if (typeof bmp.close === 'function') bmp.close()
+      return URL.createObjectURL(await canvasToBlob(canvas))
+    }
+  } catch {
+    /* fall back to the raw file */
+  }
+  return URL.createObjectURL(file)
+}
+
+/** An in-app camera using getUserMedia — no hand-off to the camera app, so it
+ *  dodges the Android "unable to complete previous operation due to low
+ *  memory" bug. Only available in a secure context (HTTPS or localhost). */
+function CameraCapture({
+  onCapture,
+  onClose,
+}: {
+  onCapture: (blob: Blob) => void
+  onClose: () => void
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    navigator.mediaDevices
+      .getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 2560 } },
+        audio: false,
+      })
+      .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop())
+          return
+        }
+        streamRef.current = stream
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          videoRef.current.play().catch(() => {})
+        }
+      })
+      .catch(() => setErr('Could not open the camera.'))
+    return () => {
+      cancelled = true
+      streamRef.current?.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
+    }
+  }, [])
+
+  const shoot = async () => {
+    const v = videoRef.current
+    if (!v || !v.videoWidth) return
+    const scale = Math.min(1, MAX_W / v.videoWidth, MAX_H / v.videoHeight)
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(v.videoWidth * scale)
+    canvas.height = Math.round(v.videoHeight * scale)
+    canvas.getContext('2d')!.drawImage(v, 0, 0, canvas.width, canvas.height)
+    onCapture(await canvasToBlob(canvas))
+  }
+
+  return (
+    <div className="cam-modal">
+      <video ref={videoRef} className="cam-video" autoPlay playsInline muted />
+      <div className="row" style={{ marginTop: 10 }}>
+        <button type="button" onClick={shoot} disabled={Boolean(err)}>
+          Capture
+        </button>
+        <button type="button" className="ghost" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+      {err ? <Alert kind="err">{err} Use “Choose photo” instead.</Alert> : null}
+    </div>
+  )
+}
+
 export interface HighlightEditorHandle {
   hasImage: () => boolean
   exportBlob: () => Promise<Blob | null>
@@ -221,8 +310,15 @@ export default function Receipts() {
   const [saving, setSaving] = useState(false)
 
   const fileRef = useRef<HTMLInputElement>(null)
+  const shootRef = useRef<HTMLInputElement>(null)
   const editorRef = useRef<HighlightEditorHandle>(null)
   const objectUrlRef = useRef<string | null>(null)
+  const [cameraOn, setCameraOn] = useState(false)
+  const cameraSupported =
+    typeof navigator !== 'undefined' &&
+    typeof window !== 'undefined' &&
+    window.isSecureContext &&
+    Boolean(navigator.mediaDevices?.getUserMedia)
 
   const loadCategories = async () => setCategories(await fetchList<Category>('/api/categories/'))
   const loadItems = async () => {
@@ -247,22 +343,36 @@ export default function Receipts() {
     setImageSrc(null)
     setBoxes([])
     setEditingId(null)
+    setCameraOn(false)
     if (fileRef.current) fileRef.current.value = ''
+    if (shootRef.current) shootRef.current.value = ''
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current)
       objectUrlRef.current = null
     }
   }
 
-  const onPickFile = (file: File) => {
-    setError('')
-    setNotice('')
+  const setSource = (url: string) => {
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
-    const url = URL.createObjectURL(file)
     objectUrlRef.current = url
     setBoxes([])
     setEditingId(null)
     setImageSrc(url)
+  }
+
+  const onPickFile = async (file: File) => {
+    setError('')
+    setNotice('')
+    try {
+      setSource(await prepareFromFile(file))
+    } catch {
+      setError('Could not read that photo — try another one, or a smaller image.')
+    }
+  }
+
+  const onCaptured = async (blob: Blob) => {
+    setCameraOn(false)
+    setSource(URL.createObjectURL(blob))
   }
 
   const startEdit = (item: UnallocatedExpense) => {
@@ -342,14 +452,50 @@ export default function Receipts() {
             <input
               type="file"
               accept="image/*"
-              capture="environment"
               ref={fileRef}
               disabled={!selected}
+              style={{ display: 'none' }}
               onChange={(e) => {
                 const f = e.target.files?.[0]
-                if (f) onPickFile(f)
+                if (f) void onPickFile(f)
+                e.target.value = ''
               }}
             />
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              ref={shootRef}
+              disabled={!selected}
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) void onPickFile(f)
+                e.target.value = ''
+              }}
+            />
+            {cameraSupported ? (
+              <button type="button" disabled={!selected} onClick={() => setCameraOn(true)}>
+                📷 Open camera
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="ghost"
+                disabled={!selected}
+                onClick={() => shootRef.current?.click()}
+              >
+                📷 Take photo
+              </button>
+            )}
+            <button
+              type="button"
+              className="ghost"
+              disabled={!selected}
+              onClick={() => fileRef.current?.click()}
+            >
+              🖼️ Choose photo
+            </button>
           </div>
           <button
             type="button"
@@ -374,8 +520,22 @@ export default function Receipts() {
           ) : null}
         </div>
 
-        <HighlightEditor ref={editorRef} imageSrc={imageSrc} boxes={boxes} onChange={setBoxes} />
+        {!imageSrc ? (
+          <p className="hint" style={{ marginTop: 10 }}>
+            If “Take photo” shows a low-memory error on your phone, use{' '}
+            <strong>Choose photo</strong> to pick from your gallery instead (the
+            camera-app hand-off is a known Android/Chrome quirk).
+          </p>
+        ) : null}
 
+        {cameraOn ? (
+          <CameraCapture
+            onCapture={(blob) => void onCaptured(blob)}
+            onClose={() => setCameraOn(false)}
+          />
+        ) : null}
+
+        <HighlightEditor ref={editorRef} imageSrc={imageSrc} boxes={boxes} onChange={setBoxes} />
         {imageSrc ? (
           <p className="hint">
             {boxes.length

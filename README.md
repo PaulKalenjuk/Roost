@@ -156,6 +156,13 @@ enter the amount by hand. Filing a capture creates a normal ad-hoc expense with
 the photo attached as its receipt — the highlight boxes are kept as normalised
 coordinates, so the stored photo itself is never altered.
 
+On Android, opening the camera from a web page can hit Chrome's *“unable to
+complete previous operation due to low memory”* bug (Android discards the page
+while the camera app is in front). The page therefore offers **Choose photo**
+(picks from the gallery, always reliable) alongside the camera; when Roost is
+served over **HTTPS** a proper **in-app camera** (`getUserMedia`, no hand-off)
+is offered automatically.
+
 ## API
 
 Session-authenticated (the same login as `/admin/`) with DRF:

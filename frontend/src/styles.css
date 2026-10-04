@@ -131,6 +131,14 @@ tfoot td { font-weight: 700; }
   cursor: crosshair; touch-action: none; /* stop the page scrolling while drawing */
 }
 .highlight-canvas.empty { display: none; }
+.cam-modal {
+  margin-top: 12px; padding: 12px; border: 1px solid var(--line);
+  border-radius: 8px; background: #0d1512;
+}
+.cam-video {
+  display: block; width: 100%; max-height: 70vh; border-radius: 8px;
+  background: #000; object-fit: contain;
+}
 .capture-thumb {
   display: block; width: 84px; height: 84px; object-fit: cover;
   border: 1px solid var(--line); border-radius: 8px; background: #fff;
