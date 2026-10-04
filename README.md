@@ -9,6 +9,8 @@ config.
 - **Income** — pull Airbnb earnings into the ledger from the **earnings-report
   PDF** (monthly totals) and/or the **transaction-history CSV** (per reservation).
 - **Expenses** — operating costs with **receipt attachments**.
+- **Receipts** — snap a receipt photo, **highlight** the lines that belong to a
+  cost, and let AI add them up and suggest a category before filing.
 - **Utilities** — the claimable portion is worked out from the **percentage of
   the dwelling that is let** (floor-area based, or a manual override).
 - **Depreciating assets** — asset register with prime-cost / diminishing-value
@@ -110,13 +112,14 @@ units, its own network (`roost.network`) and volumes, port **8686**. See
 
 ## Front-end (TypeScript SPA)
 
-`frontend/` is a **Vite + React + TypeScript** app with five sections:
+`frontend/` is a **Vite + React + TypeScript** app with six sections:
 
 | Section | What it does |
 | --- | --- |
 | **Property setup** | dwelling, floor areas / let %, GST flag, depreciation-method default (ATO link), owners + shares, listings, property image (printed top-right on the FY PDF) |
 | **Income** | import the Airbnb earnings **PDF** (monthly totals, overwrites, **original PDF kept**), view monthly earnings, import history + reservations |
 | **Expenses** | two tabs — **Ad hoc** (with receipt upload) and **Utilities** |
+| **Receipts** | capture a receipt photo, **highlight** the lines on it, save to *unallocated*, then **Process with AI** (sums the highlighted lines + suggests a category) and file it as an expense |
 | **Depreciating assets** | asset register + built schedules, receipt upload, rebuild schedules |
 | **Reporting** | per-FY report with the maths shown, optional per-owner split |
 
@@ -137,6 +140,22 @@ supplier as validated JSON. Scanned/photographed bills have no text layer — th
 UI reports that and you enter the amount manually. Without a key, the feature is
 simply unavailable and everything else works.
 
+### Reading photographed receipts (optional)
+
+The **Receipts** page captures a photo (the camera, on a phone), lets you draw
+highlight boxes over the lines that belong to the expense, and saves it to the
+**unallocated** area. **Process with AI** crops those highlighted regions out of
+the photo, reads them with a **vision** model, adds the line prices up *in
+Python* (model arithmetic is never trusted) and suggests a category using the
+property's existing expenses as examples.
+
+Point `DEEPSEEK_VISION_MODEL` / `DEEPSEEK_VISION_BASE_URL` at any vision-capable
+OpenAI-compatible endpoint (a DeepSeek vision model, or a local Ollama `/v1`);
+without one, processing reports that vision is unavailable and you can still
+enter the amount by hand. Filing a capture creates a normal ad-hoc expense with
+the photo attached as its receipt — the highlight boxes are kept as normalised
+coordinates, so the stored photo itself is never altered.
+
 ## API
 
 Session-authenticated (the same login as `/admin/`) with DRF:
@@ -145,6 +164,9 @@ Session-authenticated (the same login as `/admin/`) with DRF:
 /api/auth/{csrf,login,logout,me}/
 /api/properties/ /api/owners/ /api/ownerships/ /api/listings/ /api/categories/
 /api/expenses/?kind=adhoc|utility  /api/utility-types/ /api/utility-bills/
+/api/unallocated/               # captured receipt photos awaiting a category
+/api/unallocated/<id>/process/   # read the highlighted lines (vision) + suggest a category
+/api/unallocated/<id>/allocate/  # create the Expense (photo attached as its receipt)
 /api/assets/ (+ /recompute/)  /api/reservations/ /api/monthly-earnings/
 /api/receipts/ /api/imports/?listing=&source=airbnb_pdf
 /api/income/import-pdf/        # multipart: file + listing (returns the retained report_url)
@@ -168,8 +190,8 @@ roost/
     ledger/
       models.py               # Property, Listing, Owner, PropertyOwnership,
                               # Reservation, MonthlyEarnings, Category, Expense,
-                              # Receipt, Asset, DepreciationEntry, UtilityType,
-                              # UtilityBill, ImportBatch
+                              # Receipt, UnallocatedExpense, Asset, DepreciationEntry,
+                              # UtilityType, UtilityBill, ImportBatch
       serializers.py          # DRF serializers
       api.py / api_urls.py    # REST API
       reports.py              # per-FY + per-owner reporting
@@ -179,6 +201,7 @@ roost/
       fiscal.py               # AU financial-year helpers
       constants.py            # ATO links
       services/bill_extract.py# PDF text + DeepSeek -> validated bill fields
+      services/capture_extract.py # highlighted-receipt crops -> vision read + category guess
       importers/
         airbnb_pdf.py         # earnings-report PDF → monthly totals
         airbnb_csv.py         # transaction CSV → reservations

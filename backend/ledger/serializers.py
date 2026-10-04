@@ -1,4 +1,6 @@
 """REST serializers for the Roost API."""
+import json
+
 from rest_framework import serializers
 
 from . import fiscal
@@ -40,6 +42,7 @@ from .models import (
     PropertyOwnership,
     Receipt,
     Reservation,
+    UnallocatedExpense,
     UtilityBill,
     UtilityType,
 )
@@ -148,6 +151,61 @@ class ReceiptSerializer(serializers.ModelSerializer):
         if upload and not validated_data.get("original_name"):
             validated_data["original_name"] = getattr(upload, "name", "")
         return super().create(validated_data)
+
+
+class UnallocatedExpenseSerializer(BaseSerializer):
+    """A photographed receipt in the unallocated staging area.
+
+    ``image`` is uploaded (multipart); ``highlights`` is the list of normalised
+    highlight boxes drawn over it. ``lines`` mirrors what the vision model read.
+    """
+
+    category_name = serializers.CharField(source="category.name", read_only=True)
+    image_url = serializers.SerializerMethodField()
+    highlight_count = serializers.SerializerMethodField()
+    lines = serializers.SerializerMethodField()
+
+    class Meta:
+        model = UnallocatedExpense
+        fields = [
+            "id", "property", "image", "image_url", "highlights", "status",
+            "date", "vendor", "description", "amount", "gst_amount",
+            "category", "category_name", "confidence", "rationale", "extracted",
+            "expense", "note", "highlight_count", "lines", "created_at",
+        ]
+        read_only_fields = [
+            "status", "confidence", "rationale", "extracted", "expense",
+        ]
+
+    def to_internal_value(self, data):
+        """Parse ``highlights`` sent as a JSON string over multipart.
+
+        ``BaseSerializer`` turns the QueryDict into a plain dict (to normalise
+        blank fields), which defeats DRF's HTML-input detection and leaves a
+        JSONField as the raw string. Decode it here.
+        """
+        value = super().to_internal_value(data)
+        highlights = value.get("highlights")
+        if isinstance(highlights, str):
+            try:
+                value["highlights"] = json.loads(highlights)
+            except json.JSONDecodeError:
+                raise serializers.ValidationError(
+                    {"highlights": "Must be valid JSON."}
+                )
+        return value
+
+    def get_image_url(self, obj):
+        request = self.context.get("request")
+        if obj.image and request:
+            return request.build_absolute_uri(obj.image.url)
+        return obj.image.url if obj.image else None
+
+    def get_highlight_count(self, obj):
+        return obj.highlight_count()
+
+    def get_lines(self, obj):
+        return (obj.extracted or {}).get("lines", [])
 
 
 class ExpenseSerializer(BaseSerializer):

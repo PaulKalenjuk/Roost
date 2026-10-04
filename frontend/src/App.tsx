@@ -6,6 +6,7 @@ import { PropertyProvider } from './store'
 import PropertySetup from './pages/PropertySetup'
 import Income from './pages/Income'
 import Expenses from './pages/Expenses'
+import Receipts from './pages/Receipts'
 import Assets from './pages/Assets'
 import Reporting from './pages/Reporting'
 
@@ -19,6 +20,7 @@ const NAV = [
   { to: '/', label: 'Property setup', end: true },
   { to: '/income', label: 'Income' },
   { to: '/expenses', label: 'Expenses' },
+  { to: '/receipts', label: 'Receipts' },
   { to: '/assets', label: 'Depreciating assets' },
   { to: '/reporting', label: 'Reporting' },
 ]
@@ -134,6 +136,7 @@ export default function App() {
             <Route path="/" element={<PropertySetup />} />
             <Route path="/income" element={<Income />} />
             <Route path="/expenses" element={<Expenses />} />
+            <Route path="/receipts" element={<Receipts />} />
             <Route path="/assets" element={<Assets />} />
             <Route path="/reporting" element={<Reporting />} />
           </Routes>

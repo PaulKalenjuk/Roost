@@ -145,6 +145,17 @@ DEEPSEEK_KEY = env("DEEPSEEK_KEY", default="")
 DEEPSEEK_MODEL = env("DEEPSEEK_MODEL", default="deepseek-flash")
 DEEPSEEK_BASE_URL = env("DEEPSEEK_BASE_URL", default="https://api.deepseek.com")
 
+# Vision model used to read *photographed* receipts (the highlighted lines).
+# Any OpenAI-compatible chat endpoint that accepts image content works — a
+# DeepSeek vision model, or a local Ollama `/v1` (e.g. gemma vision) — set
+# DEEPSEEK_VISION_BASE_URL/DEEPSEEK_VISION_MODEL accordingly. Falls back to the
+# text model/base URL when unset (photographed receipts then report that no
+# vision model is available rather than guessing).
+DEEPSEEK_VISION_MODEL = env("DEEPSEEK_VISION_MODEL", default=DEEPSEEK_MODEL)
+DEEPSEEK_VISION_BASE_URL = env(
+    "DEEPSEEK_VISION_BASE_URL", default=DEEPSEEK_BASE_URL
+)
+
 # --- Single-page app (built into backend/spa by Vite) --------------------
 SPA_ROOT = BASE_DIR / "spa"
 WHITENOISE_ROOT = SPA_ROOT

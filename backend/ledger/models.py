@@ -468,6 +468,7 @@ class Expense(TimestampedModel):
         ("manual", "Manual entry"),
         ("airbnb_csv", "Airbnb CSV import"),
         ("utility_bill", "Utility bill"),
+        ("receipt_capture", "Receipt capture"),
         ("other", "Other import"),
     ]
 
@@ -628,6 +629,102 @@ class Receipt(TimestampedModel):
 # ---------------------------------------------------------------------------
 # Depreciating assets
 # ---------------------------------------------------------------------------
+class UnallocatedExpense(TimestampedModel):
+    """A photographed receipt waiting to be allocated to an :class:`Expense`.
+
+    Workflow: snap (or choose) a photo of a receipt, draw highlight boxes over
+    the lines that belong to the expense, and save it here. Later, *Process with
+    AI* reads the highlighted lines, adds them up and suggests a category;
+    *allocate* then creates the real ledger expense with the photo attached as
+    its receipt.
+    """
+
+    STATUS_PENDING = "pending"
+    STATUS_PROCESSED = "processed"
+    STATUS_ALLOCATED = "allocated"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_PROCESSED, "Read with AI"),
+        (STATUS_ALLOCATED, "Allocated"),
+    ]
+
+    property = models.ForeignKey(
+        Property, on_delete=models.CASCADE, related_name="unallocated_expenses"
+    )
+    image = models.ImageField(
+        upload_to="unallocated/%Y/%m/",
+        help_text="The photographed receipt.",
+    )
+    #: Highlight boxes drawn over the photo, normalised to fractions of the
+    #: image (origin top-left): ``[{"x": 0.1, "y": 0.2, "w": 0.5, "h": 0.06}]``.
+    highlights = models.JSONField(default=list, blank=True)
+
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING
+    )
+
+    date = models.DateField(default=timezone.localdate, help_text="Capture date.")
+    vendor = models.CharField(max_length=200, blank=True)
+    description = models.CharField(max_length=255, blank=True)
+
+    #: Filled in by *Process with AI* — the sum of the highlighted lines.
+    amount = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
+    gst_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
+    category = models.ForeignKey(
+        Category,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Suggested category (AI guess, or chosen by hand).",
+    )
+    confidence = models.DecimalField(
+        max_digits=4, decimal_places=3, null=True, blank=True
+    )
+    rationale = models.TextField(blank=True)
+    #: Raw AI output (read lines + classification) kept for audit/debugging.
+    extracted = models.JSONField(default=dict, blank=True)
+
+    expense = models.ForeignKey(
+        Expense,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The ledger expense this receipt was allocated to.",
+    )
+    note = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "unallocated expense"
+        verbose_name_plural = "unallocated expenses"
+
+    def highlight_count(self):
+        """NB: a plain method, not @property — the ``property`` FK in this class
+        shadows the ``property`` builtin."""
+        return len(self.highlights or [])
+
+    highlight_count.short_description = "highlights"
+
+    def delete(self, *args, **kwargs):
+        """Delete the stored photo along with the row."""
+        image = self.image
+        storage = image.storage if image else None
+        name = image.name if image else None
+        result = super().delete(*args, **kwargs)
+        if storage and name:
+            storage.delete(name)
+        return result
+
+    def __str__(self):
+        return f"{self.date} · {self.vendor or 'receipt'} · {self.amount or '—'}"
+
+
 class Asset(TimestampedModel):
     """A depreciating asset in the rental (plant & equipment, capital works…)."""
 
@@ -957,3 +1054,10 @@ def _delete_receipts_with_expense(sender, instance, **kwargs):
     """Cascade-safe cleanup: an expense's receipts go with it."""
     for receipt in list(Receipt.objects.filter(expense=instance)):
         receipt.delete()
+
+
+@receiver(post_delete, sender=UnallocatedExpense)
+def _delete_capture_image(sender, instance, **kwargs):
+    """Cascade-safe cleanup: an unallocated receipt's photo goes with it."""
+    if instance.image:
+        instance.image.delete(save=False)

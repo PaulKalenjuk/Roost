@@ -123,6 +123,19 @@ tfoot td { font-weight: 700; }
 .btn-busy { display: inline-flex; align-items: center; }
 @keyframes roost-spin { to { transform: rotate(360deg); } }
 
+/* Receipt capture & highlight editor */
+.capture { margin-top: 12px; }
+.highlight-canvas {
+  display: block; width: 100%; height: auto; max-width: 100%;
+  border: 1px solid var(--line); border-radius: 8px; background: #fff;
+  cursor: crosshair; touch-action: none; /* stop the page scrolling while drawing */
+}
+.highlight-canvas.empty { display: none; }
+.capture-thumb {
+  display: block; width: 84px; height: 84px; object-fit: cover;
+  border: 1px solid var(--line); border-radius: 8px; background: #fff;
+}
+
 /* Coverage timeline */
 .covbar { display: flex; height: 20px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: #fff; }
 .covseg { height: 100%; }

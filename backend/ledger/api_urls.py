@@ -18,6 +18,7 @@ router.register("reservations", api.ReservationViewSet, basename="reservation")
 router.register("monthly-earnings", api.MonthlyEarningsViewSet, basename="monthly-earnings")
 router.register("earnings-summaries", api.EarningsSummaryViewSet, basename="earnings-summary")
 router.register("receipts", api.ReceiptViewSet, basename="receipt")
+router.register("unallocated", api.UnallocatedExpenseViewSet, basename="unallocated")
 router.register("imports", api.ImportBatchViewSet, basename="import")
 
 urlpatterns = [

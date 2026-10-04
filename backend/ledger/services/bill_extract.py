@@ -13,6 +13,7 @@ Two steps:
 The function degrades gracefully: with no ``DEEPSEEK_KEY`` configured it raises
 ``BillExtractionUnavailable`` and callers fall back to manual entry.
 """
+import base64
 import datetime as dt
 import json
 import re
@@ -83,26 +84,9 @@ def _coerce_date(value):
     return None
 
 
-def call_json(system_prompt, user_prompt):
-    """Call DeepSeek and return the parsed JSON object.
-
-    Raises :class:`BillExtractionUnavailable` when the key is missing, the call
-    fails, or the response isn't usable JSON.
-    """
-    key = settings.DEEPSEEK_KEY
-    if not key:
-        raise BillExtractionUnavailable("DEEPSEEK_KEY is not configured")
-
-    payload = {
-        "model": settings.DEEPSEEK_MODEL,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "temperature": 0,
-        "response_format": {"type": "json_object"},
-    }
-    url = settings.DEEPSEEK_BASE_URL.rstrip("/") + "/chat/completions"
+def _chat_completions(payload, base_url, key):
+    """POST an OpenAI-compatible chat payload and return the message content."""
+    url = base_url.rstrip("/") + "/chat/completions"
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -122,16 +106,79 @@ def call_json(system_prompt, user_prompt):
         raise BillExtractionUnavailable(f"DeepSeek unreachable: {exc.reason}") from exc
 
     try:
-        content = body["choices"][0]["message"]["content"]
+        return body["choices"][0]["message"]["content"]
     except (KeyError, IndexError) as exc:  # pragma: no cover
         raise BillExtractionUnavailable("Unexpected DeepSeek response shape") from exc
 
-    # Tolerate models that wrap JSON in prose or code fences.
+
+def _parse_json_object(content):
+    """Parse a JSON object from model output, tolerating prose/code fences."""
     match = re.search(r"\{.*\}", content, re.S)
     try:
         return json.loads(match.group(0) if match else content)
     except json.JSONDecodeError as exc:
         raise BillExtractionUnavailable("DeepSeek did not return valid JSON") from exc
+
+
+def call_json(system_prompt, user_prompt):
+    """Call DeepSeek (text) and return the parsed JSON object.
+
+    Raises :class:`BillExtractionUnavailable` when the key is missing, the call
+    fails, or the response isn't usable JSON.
+    """
+    key = settings.DEEPSEEK_KEY
+    if not key:
+        raise BillExtractionUnavailable("DEEPSEEK_KEY is not configured")
+
+    payload = {
+        "model": settings.DEEPSEEK_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
+    }
+    return _parse_json_object(
+        _chat_completions(payload, settings.DEEPSEEK_BASE_URL, key)
+    )
+
+
+def call_vision_json(
+    system_prompt, user_prompt, images, model=None, base_url=None, api_key=None
+):
+    """Call a vision-capable chat model with one or more images.
+
+    ``images`` is an iterable of raw image bytes (JPEG/PNG). Uses the DeepSeek
+    **vision** settings, which default to the text model/base URL but can point
+    at any OpenAI-compatible multimodal endpoint (e.g. a local Ollama ``/v1``).
+    """
+    key = api_key if api_key is not None else settings.DEEPSEEK_KEY
+    if not key:
+        raise BillExtractionUnavailable("DEEPSEEK_KEY is not configured")
+
+    content = [{"type": "text", "text": user_prompt}]
+    for raw in images:
+        b64 = base64.b64encode(raw).decode("ascii")
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+            }
+        )
+
+    payload = {
+        "model": model or settings.DEEPSEEK_VISION_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": content},
+        ],
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
+    }
+    return _parse_json_object(
+        _chat_completions(payload, base_url or settings.DEEPSEEK_VISION_BASE_URL, key)
+    )
 
 
 def _call_deepseek(text):

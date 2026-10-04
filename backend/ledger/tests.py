@@ -39,10 +39,11 @@ from .models import (
     PropertyOwnership,
     Receipt,
     Reservation,
+    UnallocatedExpense,
     UtilityBill,
     UtilityType,
 )
-from .services import asset_extract, bill_extract, expense_extract
+from .services import asset_extract, bill_extract, capture_extract, expense_extract
 
 
 def _weasyprint_available():
@@ -467,6 +468,245 @@ class UtilityBillTests(BaseLedgerTestCase):
         self.assertEqual(Expense.objects.filter(kind=Expense.KIND_UTILITY).count(), 1)
         bill.refresh_from_db()
         self.assertEqual(bill.expense.deductible_amount, Decimal("200.00"))
+
+
+def _png_bytes(width=200, height=120):
+    """A real little PNG, for photo uploads in tests."""
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (width, height), (250, 250, 245)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+class UnallocatedExpenseTests(BaseLedgerTestCase):
+    """The unallocated area: capture a photo + highlights, process, allocate."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.mkdtemp()
+        override = override_settings(MEDIA_ROOT=self.tmp)
+        override.enable()
+        self.addCleanup(override.disable)
+        self.cat = Category.objects.create(name="Cleaning", kind=Category.KIND_OPERATING)
+        user = User.objects.create_user("captures", "c@example.com", "unused-pw")
+        self.api = APIClient()
+        self.api.force_login(user)
+
+    def _capture(self, highlights=None):
+        upload = SimpleUploadedFile("receipt.jpg", _png_bytes(), content_type="image/jpeg")
+        response = self.api.post(
+            "/api/unallocated/",
+            {
+                "property": self.prop.id,
+                "image": upload,
+                "highlights": json.dumps(highlights or [{"x": 0.1, "y": 0.5, "w": 0.6, "h": 0.05}]),
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        return UnallocatedExpense.objects.get()
+
+    def test_upload_stores_the_photo_and_highlights(self):
+        capture = self._capture()
+        self.assertTrue(capture.image.name.startswith("unallocated/"))
+        self.assertTrue(Path(self.tmp).joinpath(capture.image.name).exists())
+        self.assertEqual(len(capture.highlights), 1)
+        self.assertEqual(capture.status, UnallocatedExpense.STATUS_PENDING)
+
+    def test_upload_requires_login(self):
+        self.api.logout()
+        response = self.client.post("/api/unallocated/")
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_list_filters_by_property(self):
+        self._capture()
+        response = self.api.get(f"/api/unallocated/?property={self.prop.id}")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["highlight_count"], 1)
+
+    def test_process_sums_highlights_and_matches_category(self):
+        capture = self._capture()
+        fake = {
+            "lines": [
+                {"region": 1, "description": "Bread", "amount": "3.50"},
+                {"region": 1, "description": "Milk", "amount": "2.40"},
+            ],
+            "amount": "5.90",
+            "gst_amount": "0.54",
+            "vendor": "Foodland",
+            "date": "2026-09-30",
+            "regions": [],
+            "highlight_count": 1,
+            "category_hint": "cleaning",
+            "confidence": "0.8200",
+            "rationale": "Household supplies",
+            "extracted_by": "vision:test",
+        }
+        with mock.patch.object(
+            capture_extract, "process_highlights", return_value=fake
+        ):
+            response = self.api.post(f"/api/unallocated/{capture.id}/process/")
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertEqual(body["amount"], "5.90")
+        capture.refresh_from_db()
+        self.assertEqual(capture.amount, Decimal("5.90"))
+        self.assertEqual(capture.vendor, "Foodland")
+        self.assertEqual(str(capture.date), "2026-09-30")
+        self.assertEqual(capture.category_id, self.cat.id)
+        self.assertEqual(capture.status, UnallocatedExpense.STATUS_PROCESSED)
+        self.assertIn("Bread", body["rationale"] + str(body["lines"]))
+
+    def test_process_reports_when_ai_is_unavailable(self):
+        capture = self._capture()
+        with mock.patch.object(
+            capture_extract,
+            "process_highlights",
+            side_effect=bill_extract.BillExtractionUnavailable("DEEPSEEK_KEY is not configured"),
+        ):
+            response = self.api.post(f"/api/unallocated/{capture.id}/process/")
+        self.assertEqual(response.status_code, 503, response.content)
+        self.assertFalse(response.json()["available"])
+
+    def test_allocate_creates_expense_and_copies_the_photo(self):
+        capture = self._capture()
+        capture.amount = Decimal("5.90")
+        capture.save()
+        response = self.api.post(
+            f"/api/unallocated/{capture.id}/allocate/",
+            {"category": self.cat.id, "date": "2026-09-30", "vendor": "Foodland"},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        expense = Expense.objects.get()
+        self.assertEqual(expense.source, "receipt_capture")
+        self.assertEqual(expense.amount, Decimal("5.90"))
+        self.assertEqual(expense.category_id, self.cat.id)
+        self.assertEqual(expense.receipts.count(), 1)
+        receipt = expense.receipts.get()
+        self.assertTrue(Path(self.tmp).joinpath(receipt.file.name).exists())
+        # the capture photo is still there too — separate files, not shared
+        self.assertTrue(Path(self.tmp).joinpath(capture.image.name).exists())
+        self.assertNotEqual(receipt.file.name, capture.image.name)
+
+        capture.refresh_from_db()
+        self.assertEqual(capture.status, UnallocatedExpense.STATUS_ALLOCATED)
+        self.assertEqual(capture.expense_id, expense.id)
+
+    def test_allocate_needs_an_amount(self):
+        capture = self._capture()
+        response = self.api.post(
+            f"/api/unallocated/{capture.id}/allocate/", {"category": self.cat.id}
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("amount", response.json()["detail"])
+
+    def test_allocate_twice_is_rejected(self):
+        capture = self._capture()
+        capture.amount = Decimal("1.00")
+        capture.save()
+        self.api.post(f"/api/unallocated/{capture.id}/allocate/", {"category": self.cat.id})
+        again = self.api.post(
+            f"/api/unallocated/{capture.id}/allocate/", {"category": self.cat.id}
+        )
+        self.assertEqual(again.status_code, 400)
+        self.assertEqual(Expense.objects.count(), 1)
+
+    def test_delete_removes_the_stored_photo(self):
+        capture = self._capture()
+        stored = Path(self.tmp).joinpath(capture.image.name)
+        response = self.api.delete(f"/api/unallocated/{capture.id}/")
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(stored.exists())
+
+    def test_deleting_the_property_cascades_and_cleans_up(self):
+        capture = self._capture()
+        stored = Path(self.tmp).joinpath(capture.image.name)
+        self.prop.delete()
+        self.assertFalse(UnallocatedExpense.objects.exists())
+        self.assertFalse(stored.exists(), "capture photo left on disk")
+
+
+class CaptureExtractTests(TestCase):
+    """Highlight cropping, summing and classification (vision mocked out)."""
+
+    def test_normalise_highlights_clamps_and_drops_junk(self):
+        cleaned = capture_extract.normalise_highlights(
+            [
+                {"x": -0.1, "y": 0.2, "w": 0.5, "h": 0.1},
+                {"x": 0.9, "y": 0.9, "w": 0.5, "h": 0.5},  # clamped to the edge
+                {"x": 0, "y": 0, "w": 0, "h": 0},  # zero-area dropped
+                "nonsense",
+            ]
+        )
+        self.assertEqual(len(cleaned), 2)
+        self.assertEqual(cleaned[0]["x"], 0.0)
+        self.assertLessEqual(cleaned[1]["x"] + cleaned[1]["w"], 1.0)
+        self.assertLessEqual(cleaned[1]["y"] + cleaned[1]["h"], 1.0)
+
+    def test_crop_regions_upscales_a_narrow_crop(self):
+        from PIL import Image
+
+        img = Image.new("RGB", (1000, 800), "white")
+        crops = capture_extract.crop_regions(
+            img, [{"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.02}], min_width=700
+        )
+        self.assertEqual(len(crops), 1)
+        self.assertGreaterEqual(crops[0].width, 700)
+
+    def test_no_highlights_falls_back_to_the_whole_image(self):
+        from PIL import Image
+
+        img = Image.new("RGB", (1000, 800), "white")
+        crops = capture_extract.crop_regions(img, [])
+        self.assertEqual(len(crops), 1)
+
+    def test_read_highlights_sums_the_lines_in_python(self):
+        fake = {
+            "regions": [
+                {"index": 1, "lines": [{"description": "Bread", "amount": "3.50"}]},
+                {"index": 2, "lines": [{"description": "Milk", "amount": 2.40}]},
+            ],
+            "vendor": "Foodland",
+            "date": "30/09/2026",
+            "gst_amount": "0.54",
+        }
+        with mock.patch.object(capture_extract, "call_vision_json", return_value=fake):
+            data = capture_extract.read_highlights(io.BytesIO(_png_bytes()), [])
+        self.assertEqual(data["amount"], "5.90")
+        self.assertEqual(data["vendor"], "Foodland")
+        self.assertEqual(data["date"], "2026-09-30")
+        self.assertEqual(len(data["lines"]), 2)
+
+    def test_process_highlights_returns_the_classification(self):
+        read = {
+            "lines": [{"region": 1, "description": "Bread", "amount": "3.50"}],
+            "amount": "3.50",
+            "vendor": "Foodland",
+            "date": None,
+            "gst_amount": None,
+            "regions": [],
+            "highlight_count": 1,
+            "extracted_by": "vision:test",
+        }
+        classification = {
+            "category_hint": "Cleaning",
+            "confidence": Decimal("0.9"),
+            "rationale": "household",
+        }
+        with mock.patch.object(capture_extract, "read_highlights", return_value=read), \
+             mock.patch.object(capture_extract, "classify", return_value=classification):
+            data = capture_extract.process_highlights(
+                io.BytesIO(_png_bytes()), [], category_names=["Cleaning"], examples=[]
+            )
+        self.assertEqual(data["amount"], "3.50")
+        self.assertEqual(data["category_hint"], "Cleaning")
+        self.assertEqual(data["confidence"], "0.9")
+
+    def test_no_key_reports_unavailable(self):
+        with override_settings(DEEPSEEK_KEY=""):
+            with self.assertRaises(bill_extract.BillExtractionUnavailable):
+                capture_extract.read_highlights(io.BytesIO(_png_bytes()), [])
 
 
 class BillExtractionTests(TestCase):

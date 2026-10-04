@@ -16,6 +16,7 @@ from .models import (
     PropertyOwnership,
     Receipt,
     Reservation,
+    UnallocatedExpense,
     UtilityBill,
     UtilityType,
 )
@@ -157,6 +158,26 @@ class ReceiptAdmin(admin.ModelAdmin):
         if obj.file:
             return format_html('<a href="{}">open</a>', obj.file.url)
         return "—"
+
+
+@admin.register(UnallocatedExpense)
+class UnallocatedExpenseAdmin(admin.ModelAdmin):
+    """Captured receipt photos awaiting (or already) allocated to an expense."""
+
+    list_display = ("created_at", "property", "date", "vendor", "amount",
+                    "category", "status", "highlight_count")
+    list_filter = ("property", "status", "category")
+    search_fields = ("vendor", "description", "note")
+    date_hierarchy = "created_at"
+    readonly_fields = ("created_at", "updated_at", "extracted", "confidence",
+                       "rationale", "status", "expense")
+    fieldsets = (
+        (None, {"fields": ("property", "image", "status", "date")}),
+        ("Details", {"fields": ("vendor", "description", "note")}),
+        ("AI read", {"fields": ("amount", "gst_amount", "category", "confidence",
+                                  "rationale", "extracted")}),
+        ("Highlights", {"fields": ("highlights",)}),
+    )
 
 
 @admin.register(UtilityType)

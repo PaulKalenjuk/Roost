@@ -135,6 +135,48 @@ export interface Receipt {
   created_at: string
 }
 
+export interface HighlightBox {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface ReadLine {
+  region: number | null
+  description: string | null
+  amount: string | null
+}
+
+export interface UnallocatedExpense {
+  id: number
+  property: number
+  image: string
+  image_url: string | null
+  highlights: HighlightBox[]
+  status: 'pending' | 'processed' | 'allocated'
+  date: string
+  vendor: string
+  description: string
+  amount: string | null
+  gst_amount: string | null
+  category: number | null
+  category_name: string | null
+  confidence: string | null
+  rationale: string
+  extracted: Record<string, unknown>
+  expense: number | null
+  note: string
+  highlight_count: number
+  lines: ReadLine[]
+  created_at: string
+}
+
+export interface AllocationResult {
+  expense: Expense
+  unallocated: UnallocatedExpense
+}
+
 export interface UtilityType {
   id: number
   property: number
