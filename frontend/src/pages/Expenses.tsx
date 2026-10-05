@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   api,
   fetchList,
@@ -332,6 +332,13 @@ function AdhocExpenses() {
     apportionment_pct: '',
     paid: true,
   })
+  // List filters (client-side). Search is keyword AND: every whitespace-separated
+  // term must appear in the vendor or the description, so "IKEA mirror" finds an
+  // IKEA expense whose description mentions a mirror.
+  const [q, setQ] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [catFilter, setCatFilter] = useState('')
 
   const load = async () => {
     if (!selected) return
@@ -348,6 +355,35 @@ function AdhocExpenses() {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id])
+
+  // Categories actually present in the list, for the filter dropdown.
+  const catOptions = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const e of items) map.set(e.category, e.category_name)
+    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]))
+  }, [items])
+
+  const filtered = useMemo(() => {
+    const terms = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    return items.filter((e) => {
+      if (catFilter && String(e.category) !== catFilter) return false
+      if (fromDate && (e.date ?? '') < fromDate) return false
+      if (toDate && (e.date ?? '') > toDate) return false
+      if (terms.length) {
+        const haystack = `${e.vendor ?? ''} ${e.description ?? ''}`.toLowerCase()
+        if (!terms.every((t) => haystack.includes(t))) return false
+      }
+      return true
+    })
+  }, [items, q, fromDate, toDate, catFilter])
+
+  const filtersActive = Boolean(q || fromDate || toDate || catFilter)
+  const clearFilters = () => {
+    setQ('')
+    setFromDate('')
+    setToDate('')
+    setCatFilter('')
+  }
 
   const readReceipt = async () => {
     const file = receiptFileRef.current?.files?.[0]
@@ -595,13 +631,53 @@ function AdhocExpenses() {
       </form>
 
       <div className="panel">
-        <h2>Ad hoc expenses</h2>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+          <h2 style={{ margin: 0 }}>Ad hoc expenses</h2>
+          <span className="muted">
+            {filtersActive ? `${filtered.length} of ${items.length}` : `${items.length}`}
+          </span>
+        </div>
+        <div className="row" style={{ flexWrap: 'wrap', gap: 12, alignItems: 'flex-end', marginTop: 10 }}>
+          <div style={{ flex: '2 1 220px' }}>
+            <label>Search</label>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="e.g. IKEA mirror — all words must match"
+            />
+          </div>
+          <div>
+            <label>From</label>
+            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+          </div>
+          <div>
+            <label>To</label>
+            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+          </div>
+          <div>
+            <label>Category</label>
+            <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)}>
+              <option value="">All categories</option>
+              {catOptions.map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {filtersActive ? (
+            <button type="button" className="ghost small" onClick={clearFilters}>
+              Clear
+            </button>
+          ) : null}
+        </div>
         <div className="tablewrap">
           <table>
             <thead>
               <tr>
                 <th>Date</th>
                 <th>Category</th>
+                <th>Vendor</th>
                 <th>Description</th>
                 <th className="num">Amount</th>
                 <th>Apportionment</th>
@@ -611,11 +687,12 @@ function AdhocExpenses() {
               </tr>
             </thead>
             <tbody>
-              {items.map((e) => (
+              {filtered.map((e) => (
                 <tr key={e.id} className={e.id === editingId ? 'selected-row' : ''}>
                   <td>{e.date}</td>
                   <td>{e.category_name}</td>
-                  <td>{e.description || e.vendor || '—'}</td>
+                  <td>{e.vendor || '—'}</td>
+                  <td>{e.description || '—'}</td>
                   <td className="num">{money(e.amount)}</td>
                   <td>{APPORTION_LABELS[e.apportionment] ?? e.apportionment}</td>
                   <td className="num">{money(e.deductible_amount)}</td>
@@ -634,10 +711,10 @@ function AdhocExpenses() {
                   </td>
                 </tr>
               ))}
-              {items.length === 0 ? (
+              {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="muted">
-                    Nothing yet.
+                  <td colSpan={9} className="muted">
+                    {items.length === 0 ? 'Nothing yet.' : 'No expenses match those filters.'}
                   </td>
                 </tr>
               ) : null}

@@ -121,7 +121,7 @@ sections:
 | --- | --- |
 | **Property setup** | dwelling, floor areas / let %, GST flag, depreciation-method default (ATO link), owners + shares, listings, property image (printed top-right on the FY PDF) |
 | **Income** | import the Airbnb earnings **PDF** (monthly totals, overwrites, **original PDF kept**), view monthly earnings, import history + reservations |
-| **Expenses** | two tabs — **Ad hoc** (with receipt upload) and **Utilities** |
+| **Expenses** | two tabs — **Ad hoc** (with receipt upload, vendor keyword search, date-range and category filters) and **Utilities** |
 | **Receipts** | capture a receipt photo, **highlight** the lines on it, save to *unallocated*, then **Process with AI** (sums the highlighted lines + suggests a category) and file it as an expense |
 | **Depreciating assets** | asset register + built schedules, receipt upload, multiple asset photos, rebuild schedules |
 | **Reporting** | per-FY report with the maths shown, optional per-owner split |
