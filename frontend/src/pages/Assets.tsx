@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, fetchList, money, pct, type Asset, type AssetExtraction } from '../api'
 import { Alert, Field } from '../components'
+import { PhotoPicker } from '../photo'
 import { useProperties } from '../store'
 
 export default function Assets() {
@@ -19,7 +20,8 @@ export default function Assets() {
     low_value_pool: false,
   })
   const assetFileRef = useRef<HTMLInputElement>(null)
-  const assetImageRef = useRef<HTMLInputElement>(null)
+  const [assetImage, setAssetImage] = useState<File | null>(null)
+  const [assetImagePreview, setAssetImagePreview] = useState('')
   const [editingAssetId, setEditingAssetId] = useState<number | null>(null)
   const [reading, setReading] = useState(false)
   const [estimated, setEstimated] = useState(false)
@@ -44,6 +46,17 @@ export default function Assets() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id, selected?.default_depreciation_method, selected?.let_share])
 
+  // Object URL for the not-yet-uploaded asset photo, so you can check it before saving.
+  useEffect(() => {
+    if (!assetImage) {
+      setAssetImagePreview('')
+      return
+    }
+    const url = URL.createObjectURL(assetImage)
+    setAssetImagePreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [assetImage])
+
   const resetForm = () => {
     setEditingAssetId(null)
     setEstimated(false)
@@ -58,7 +71,7 @@ export default function Assets() {
       low_value_pool: false,
     })
     if (assetFileRef.current) assetFileRef.current.value = ''
-    if (assetImageRef.current) assetImageRef.current.value = ''
+    setAssetImage(null)
   }
 
   const startEdit = (a: Asset) => {
@@ -75,7 +88,7 @@ export default function Assets() {
       low_value_pool: a.low_value_pool,
     })
     if (assetFileRef.current) assetFileRef.current.value = ''
-    if (assetImageRef.current) assetImageRef.current.value = ''
+    setAssetImage(null)
     setError('')
     setNotice(`Editing “${a.name}”.`)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -113,8 +126,7 @@ export default function Assets() {
     body.append('business_use_pct', form.business_use_pct || '1')
     body.append('low_value_pool', String(form.low_value_pool))
     body.append('effective_life_is_estimate', String(estimated))
-    const image = assetImageRef.current?.files?.[0]
-    if (image) body.append('image', image)
+    if (assetImage) body.append('image', assetImage)
 
     try {
       let assetId: number
@@ -250,8 +262,36 @@ export default function Assets() {
             <input type="file" accept="application/pdf,image/*" ref={assetFileRef} />
           </div>
           <div>
-            <label>Asset photo (image)</label>
-            <input type="file" accept="image/*" ref={assetImageRef} />
+            <label>Asset photo</label>
+            <PhotoPicker
+              disabled={!selected}
+              onPick={setAssetImage}
+              hint="Take a photo, or choose one already on your device."
+            />
+            {assetImage ? (
+              <div className="row" style={{ marginTop: 8, alignItems: 'center', gap: 8 }}>
+                {assetImagePreview ? (
+                  <img
+                    src={assetImagePreview}
+                    alt="Selected asset photo"
+                    style={{
+                      width: 44,
+                      height: 44,
+                      objectFit: 'cover',
+                      borderRadius: 6,
+                      border: '1px solid var(--line)',
+                      display: 'block',
+                    }}
+                  />
+                ) : null}
+                <span className="muted" style={{ fontSize: 13 }}>
+                  {assetImage.name}
+                </span>
+                <button type="button" className="ghost small" onClick={() => setAssetImage(null)}>
+                  Remove
+                </button>
+              </div>
+            ) : null}
           </div>
           <button
             type="button"

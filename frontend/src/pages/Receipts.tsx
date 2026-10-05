@@ -16,10 +16,9 @@ import {
   type UnallocatedExpense,
 } from '../api'
 import { Alert, CategoryPicker, Field } from '../components'
+import { CameraCapture, MAX_H, MAX_W, canvasToBlob } from '../photo'
 import { useProperties } from '../store'
 
-const MAX_W = 1000
-const MAX_H = 1600
 const MIN_BOX = 0.004
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -28,16 +27,6 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     img.onload = () => resolve(img)
     img.onerror = () => reject(new Error('Could not load the photo'))
     img.src = src
-  })
-}
-
-function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error('Could not export the photo'))),
-      'image/jpeg',
-      0.85,
-    )
   })
 }
 
@@ -61,73 +50,6 @@ async function prepareFromFile(file: File): Promise<string> {
     /* fall back to the raw file */
   }
   return URL.createObjectURL(file)
-}
-
-/** An in-app camera using getUserMedia — no hand-off to the camera app, so it
- *  dodges the Android "unable to complete previous operation due to low
- *  memory" bug. Only available in a secure context (HTTPS or localhost). */
-function CameraCapture({
-  onCapture,
-  onClose,
-}: {
-  onCapture: (blob: Blob) => void
-  onClose: () => void
-}) {
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const [err, setErr] = useState('')
-
-  useEffect(() => {
-    let cancelled = false
-    navigator.mediaDevices
-      .getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 2560 } },
-        audio: false,
-      })
-      .then((stream) => {
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop())
-          return
-        }
-        streamRef.current = stream
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          videoRef.current.play().catch(() => {})
-        }
-      })
-      .catch(() => setErr('Could not open the camera.'))
-    return () => {
-      cancelled = true
-      streamRef.current?.getTracks().forEach((t) => t.stop())
-      streamRef.current = null
-    }
-  }, [])
-
-  const shoot = async () => {
-    const v = videoRef.current
-    if (!v || !v.videoWidth) return
-    const scale = Math.min(1, MAX_W / v.videoWidth, MAX_H / v.videoHeight)
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.round(v.videoWidth * scale)
-    canvas.height = Math.round(v.videoHeight * scale)
-    canvas.getContext('2d')!.drawImage(v, 0, 0, canvas.width, canvas.height)
-    onCapture(await canvasToBlob(canvas))
-  }
-
-  return (
-    <div className="cam-modal">
-      <video ref={videoRef} className="cam-video" autoPlay playsInline muted />
-      <div className="row" style={{ marginTop: 10 }}>
-        <button type="button" onClick={shoot} disabled={Boolean(err)}>
-          Capture
-        </button>
-        <button type="button" className="ghost" onClick={onClose}>
-          Cancel
-        </button>
-      </div>
-      {err ? <Alert kind="err">{err} Use “Choose photo” instead.</Alert> : null}
-    </div>
-  )
 }
 
 export interface HighlightEditorHandle {
