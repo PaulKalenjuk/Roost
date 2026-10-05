@@ -3,6 +3,9 @@ Description=Trigger a manual Roost backup when the app drops the .run-now file
 
 [Path]
 PathExists=/home/paulkalenjuk/roost/backups/.run-now
+# Name the unit to activate — a .path unit defaults to the same-named .service
+# (the scheduled, change-aware one), but a manual run must be the forced one.
+Unit=roost-backup-manual.service
 
 [Install]
 WantedBy=paths.target

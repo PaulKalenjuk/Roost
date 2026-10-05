@@ -59,8 +59,11 @@ media_fp() {
     | LC_ALL=C sort | sha256sum | cut -d' ' -f1
 }
 db_fp() {
+  # Exclude the volatile Django tables (logins / admin activity): a session change
+  # isn't an app-data change, and shouldn't trigger a backup on its own.
   podman exec "$ROOST_DB_CONTAINER" \
-    pg_dump -U "$ROOST_DB_USER" --data-only --no-owner --no-privileges -Fp "$ROOST_DB_NAME" 2>/dev/null \
+    pg_dump -U "$ROOST_DB_USER" --data-only --no-owner --no-privileges -Fp \
+      -T django_session -T django_admin_log "$ROOST_DB_NAME" 2>/dev/null \
     | grep -vE '^(--|\\|$)' | sha256sum | cut -d' ' -f1
 }
 
