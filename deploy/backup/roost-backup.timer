@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Roost backup (skips when no data has changed)
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 Australia/Adelaide
+RandomizedDelaySec=0
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

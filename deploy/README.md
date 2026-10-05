@@ -68,3 +68,58 @@ ssh homeserver 'podman build -f ~/roost/app/backend/Dockerfile -t localhost/roos
 ```
 
 (`roost-db` has `AutoUpdate=registry` so the Postgres image tracks upstream.)
+
+## Backups
+
+Nightly, **change-aware** backup: a Postgres dump (custom format, `pg_restore`-able)
+plus a gzip tarball of the media volume, kept locally (last `ROOST_BACKUP_KEEP`,
+default 3) and mirrored to an **encrypted** rclone remote (Google Drive by default).
+If nothing has changed since the last successful backup the job does nothing — no
+new copy, no upload.
+
+Config lives in `~/roost/config/backup.env` (see `deploy/backup/backup.env.example`);
+the Google Drive credentials live in the rclone config, not in the repo.
+
+### One-time setup
+
+```bash
+# rclone (user-local, no root)
+mkdir -p ~/bin && cd /tmp
+curl -fsSL -o rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+python3 - <<'PY'
+import zipfile, glob, os, shutil
+zipfile.ZipFile('/tmp/rclone.zip').extractall('/tmp/rclone-x')
+shutil.copy2(glob.glob('/tmp/rclone-x/rclone-*/rclone')[0], os.path.expanduser('~/bin/rclone'))
+PY
+chmod +x ~/bin/rclone
+
+# Google Drive remote + encrypted crypt remote. On a machine with a browser run
+#   rclone authorize drive
+# and paste the printed token into ~/.config/rclone/rclone.conf:
+#   [gdrive]       type = drive  scope = drive  token = {...}
+#   [gdrive-crypt] type = crypt  remote = gdrive:RoostBackups
+#                  filename_encryption = standard  directory_name_encryption = true
+#                  password = <obscured>  password2 = <obscured>
+
+# config + systemd user units
+install -m 600 deploy/backup/backup.env.example ~/roost/config/backup.env   # then edit
+cp deploy/backup/roost-backup.service deploy/backup/roost-backup.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now roost-backup.timer
+```
+
+The timer fires at **02:30 Australia/Adelaide** daily; the script decides whether
+there is anything to do.
+
+### Restore
+
+```bash
+bash deploy/backup/roost-restore.sh --list --remote      # what's available
+bash deploy/backup/roost-restore.sh --remote --stamp 20261005-065800
+```
+
+This stops `roost-app`, replaces the database and media, and starts the app again.
+
+⚠️ **Keep the crypt password/salt safe** (they're in `rclone.conf`): without them
+the encrypted Drive copies cannot be decrypted. Logs: `~/roost/backups/backup.log`
+and `journalctl --user -u roost-backup.service`.
