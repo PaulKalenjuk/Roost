@@ -13,6 +13,8 @@
 #
 # Config: ~/roost/config/backup.env (see backup.env.example).
 #
+# Usage: roost-backup.sh [--force]   (--force ignores the change check)
+#
 set -euo pipefail
 
 CONFIG=${ROOST_BACKUP_CONF:-$HOME/roost/config/backup.env}
@@ -34,6 +36,19 @@ mkdir -p "$ROOST_BACKUP_DIR"
 LOG="$ROOST_BACKUP_DIR/backup.log"
 log() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S%z')" "$*" | tee -a "$LOG"; }
 
+# A manual run (from the UI, or `--force`) skips the change check; the scheduled
+# run only backs up when something has changed.
+FORCE=0
+[ "${1:-}" = "--force" ] && FORCE=1
+
+# `.running` lets the app show progress; `.run-now` is the sentinel the host's
+# systemd path unit watches — remove it here so a later request triggers again.
+RUNNING="$ROOST_BACKUP_DIR/.running"
+touch "$RUNNING"
+rm -f "$ROOST_BACKUP_DIR/.run-now"
+cleanup() { rm -f "$RUNNING"; [ -n "${TMP:-}" ] && rm -rf "$TMP"; }
+trap cleanup EXIT
+
 REMOTE_DIR="${ROOST_BACKUP_REMOTE}${ROOST_BACKUP_SUBDIR}"
 
 # --- change detection -------------------------------------------------------
@@ -49,10 +64,10 @@ db_fp() {
     | grep -vE '^(--|\\|$)' | sha256sum | cut -d' ' -f1
 }
 
-log "backup run starting"
+if [ "$FORCE" = 1 ]; then log "backup run starting (forced)"; else log "backup run starting"; fi
 FP="$(media_fp):$(db_fp)"
 STATE="$ROOST_BACKUP_DIR/.last-fingerprint"
-if [ -f "$STATE" ] && [ "$(cat "$STATE")" = "$FP" ]; then
+if [ "$FORCE" != 1 ] && [ -f "$STATE" ] && [ "$(cat "$STATE")" = "$FP" ]; then
   log "no changes since last backup — nothing to do"
   exit 0
 fi
@@ -62,7 +77,6 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 DB_FILE="roost-db-$STAMP.dump"
 MEDIA_FILE="roost-media-$STAMP.tar.gz"
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
 
 log "changes detected — building restore point $STAMP"
 podman exec "$ROOST_DB_CONTAINER" pg_dump -U "$ROOST_DB_USER" -Fc "$ROOST_DB_NAME" > "$TMP/$DB_FILE"

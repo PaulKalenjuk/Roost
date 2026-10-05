@@ -170,3 +170,23 @@ WHITENOISE_INDEX_FILE = True
 # WhiteNoise doesn't know .webmanifest → serve it with the type Chrome expects,
 # otherwise the PWA manifest may be ignored (and the app won't be installable).
 WHITENOISE_MIMETYPES = {".webmanifest": "application/manifest+json"}
+
+# --- Backups (host paths bind-mounted into the container) -----------------
+# The backup itself runs on the host (systemd timer + deploy/backup/roost-backup.sh);
+# these paths let the app *view* the restore points, log and rclone remote, and
+# request a run (by dropping a sentinel file the host watches).
+ROOST_BACKUP_DIR = env("ROOST_BACKUP_DIR", default="/backups")
+ROOST_BACKUP_LOG = env("ROOST_BACKUP_LOG", default="/backups/backup.log")
+ROOST_RCLONE = env("ROOST_RCLONE", default="/usr/local/bin/rclone")
+ROOST_RCLONE_CONFIG = env(
+    "ROOST_RCLONE_CONFIG", default="/root/.config/rclone/rclone.conf"
+)
+ROOST_RCLONE_ACCOUNT = env(
+    "ROOST_RCLONE_ACCOUNT", default="/root/.config/rclone/account.json"
+)
+ROOST_DRIVE_REMOTE = env("ROOST_DRIVE_REMOTE", default="gdrive")
+ROOST_BACKUP_REMOTE = env("ROOST_BACKUP_REMOTE", default="gdrive-crypt")
+ROOST_BACKUP_KEEP = env.int("ROOST_BACKUP_KEEP", default=3)
+ROOST_BACKUP_SCHEDULE = env(
+    "ROOST_BACKUP_SCHEDULE", default="02:30 Australia/Adelaide"
+)

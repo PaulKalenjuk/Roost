@@ -125,6 +125,7 @@ sections:
 | **Receipts** | capture a receipt photo, **highlight** the lines on it, save to *unallocated*, then **Process with AI** (sums the highlighted lines + suggests a category) and file it as an expense |
 | **Depreciating assets** | asset register + built schedules, receipt upload, multiple asset photos, rebuild schedules |
 | **Reporting** | per-FY report with the maths shown, optional per-owner split |
+| **Backups** | log, local + Drive restore points, run now, Google Drive account |
 
 It works on a phone as well as a desktop: below **880px** the left menu collapses
 into an off-canvas drawer opened from a sticky top bar (close it with the ✕, the

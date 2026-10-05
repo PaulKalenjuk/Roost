@@ -10,6 +10,10 @@ ContainerName=roost-app
 Network=roost.network
 PublishPort=8686:8000
 Volume=roost-media:/app/media
+# Backups: the restore points + log live on the host (deploy/backup); the rclone
+# config is shared so the app can show the Drive account/quota and switch account.
+Volume=/home/paulkalenjuk/roost/backups:/backups
+Volume=/home/paulkalenjuk/.config/rclone:/root/.config/rclone
 EnvironmentFile=/home/paulkalenjuk/roost/config/roost.env
 AutoUpdate=never
 

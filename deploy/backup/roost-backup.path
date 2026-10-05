@@ -1,0 +1,8 @@
+[Unit]
+Description=Trigger a manual Roost backup when the app drops the .run-now file
+
+[Path]
+PathExists=/home/paulkalenjuk/roost/backups/.run-now
+
+[Install]
+WantedBy=paths.target

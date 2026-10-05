@@ -17,6 +17,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
+from . import backup
 from . import coverage as coverage_lib
 from . import depreciation as depreciation_lib
 from . import fiscal, pdf, receipts_zip, reports
@@ -644,3 +645,32 @@ def _fy_options():
     today = dt.date.today()
     this_year = today.year if today.month >= 7 else today.year - 1
     return [f"FY{y}-{str(y + 1)[2:]}" for y in range(this_year, this_year - 6, -1)]
+
+
+# --- Backups ----------------------------------------------------------------
+
+@api_view(["GET"])
+def backups_status(request):
+    """Restore points, Drive account + quota and run state for the Backups page."""
+    return Response(backup.status())
+
+
+@api_view(["GET"])
+def backups_log(request):
+    try:
+        lines = int(request.query_params.get("lines", 200))
+    except (TypeError, ValueError):
+        lines = 200
+    return Response({"lines": backup.log_tail(max(1, min(lines, 2000)))})
+
+
+@api_view(["POST"])
+def backups_run(request):
+    ok, message = backup.request_run()
+    return Response({"ok": ok, "message": message}, status=200 if ok else 409)
+
+
+@api_view(["POST"])
+def backups_account(request):
+    ok, message = backup.change_account(request.data.get("token", ""))
+    return Response({"ok": ok, "message": message}, status=200 if ok else 400)

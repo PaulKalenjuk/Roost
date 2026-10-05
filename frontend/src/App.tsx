@@ -9,6 +9,7 @@ import Expenses from './pages/Expenses'
 import Receipts from './pages/Receipts'
 import Assets from './pages/Assets'
 import Reporting from './pages/Reporting'
+import Backups from './pages/Backups'
 
 interface Me {
   authenticated: boolean
@@ -22,6 +23,7 @@ const NAV = [
   { to: '/expenses', label: 'Expenses' },
   { to: '/assets', label: 'Depreciating assets' },
   { to: '/reporting', label: 'Reporting' },
+  { to: '/backups', label: 'Backups' },
   { to: '/setup', label: 'Property setup' },
 ]
 
@@ -142,6 +144,7 @@ export default function App() {
             <Route path="/setup" element={<PropertySetup />} />
             <Route path="/assets" element={<Assets />} />
             <Route path="/reporting" element={<Reporting />} />
+            <Route path="/backups" element={<Backups />} />
           </Routes>
         </main>
       </div>

@@ -103,13 +103,24 @@ chmod +x ~/bin/rclone
 
 # config + systemd user units
 install -m 600 deploy/backup/backup.env.example ~/roost/config/backup.env   # then edit
-cp deploy/backup/roost-backup.service deploy/backup/roost-backup.timer ~/.config/systemd/user/
+cp deploy/backup/roost-backup.service deploy/backup/roost-backup-manual.service \
+   deploy/backup/roost-backup.timer deploy/backup/roost-backup.path ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now roost-backup.timer
+systemctl --user enable --now roost-backup.timer roost-backup.path
 ```
 
 The timer fires at **02:30 Australia/Adelaide** daily; the script decides whether
 there is anything to do.
+
+### In the app
+
+The **Backups** page (left menu) shows the log, the local and Drive restore points,
+and the connected Drive account + quota. **Back up now** forces a run: it drops
+`~/roost/backups/.run-now`, which the `roost-backup.path` unit watches and turns
+into `roost-backup-manual.service`. **Change account** takes the token printed by
+`rclone authorize "drive"`, tests it and saves it. The container reaches all this
+through the bind mounts added to `roost-app.container` (the backups dir and the
+rclone config).
 
 ### Restore
 

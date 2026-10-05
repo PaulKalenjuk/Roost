@@ -19,6 +19,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # fonts-dejavu-core -> a real font for the generated PDFs
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      unzip \
       libpq5 \
       libpango-1.0-0 \
       libpangoft2-1.0-0 \
@@ -29,7 +32,12 @@ RUN apt-get update \
       libffi8 \
       shared-mime-info \
       fonts-dejavu-core \
- && rm -rf /var/lib/apt/lists/*
+ # rclone: the Backups page uses it to list/show the Drive remote and to switch
+ # the connected account. The backup itself runs on the host (see deploy/backup).
+ && curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o /tmp/rclone.zip \
+ && unzip -q /tmp/rclone.zip -d /tmp/rclone \
+ && install -m 755 /tmp/rclone/rclone-*/rclone /usr/local/bin/rclone \
+ && rm -rf /tmp/rclone /tmp/rclone.zip /var/lib/apt/lists/*
 
 WORKDIR /app
 

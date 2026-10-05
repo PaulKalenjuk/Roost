@@ -1,0 +1,11 @@
+[Unit]
+Description=Roost backup (manual / forced run)
+Documentation=file:%h/roost/app/deploy/README.md
+Wants=roost-db.service
+After=roost-db.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env bash %h/roost/app/deploy/backup/roost-backup.sh --force
+Nice=10
+IOSchedulingClass=idle
