@@ -5,6 +5,7 @@ from django.utils.html import format_html
 from . import depreciation
 from .models import (
     Asset,
+    AssetPhoto,
     Category,
     DepreciationEntry,
     Expense,
@@ -128,6 +129,11 @@ class DepreciationEntryInline(admin.TabularInline):
                        "deduction", "closing_value", "days_held")
 
 
+class AssetPhotoInline(admin.TabularInline):
+    model = AssetPhoto
+    extra = 0
+
+
 @admin.register(Asset)
 class AssetAdmin(admin.ModelAdmin):
     list_display = ("name", "property", "kind", "purchase_date", "cost",
@@ -135,7 +141,7 @@ class AssetAdmin(admin.ModelAdmin):
                     "low_value_pool", "is_disposed")
     list_filter = ("kind", "method", "low_value_pool", "property")
     search_fields = ("name", "notes")
-    inlines = [DepreciationEntryInline]
+    inlines = [AssetPhotoInline, DepreciationEntryInline]
     actions = ["rebuild_depreciation"]
 
     @admin.action(description="Rebuild depreciation schedule")

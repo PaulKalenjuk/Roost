@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { api, fetchList, money, pct, type Asset, type AssetExtraction } from '../api'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { api, fetchList, money, pct, type Asset, type AssetExtraction, type AssetPhoto } from '../api'
 import { Alert, Field } from '../components'
 import { PhotoPicker } from '../photo'
 import { useProperties } from '../store'
@@ -20,8 +20,8 @@ export default function Assets() {
     low_value_pool: false,
   })
   const assetFileRef = useRef<HTMLInputElement>(null)
-  const [assetImage, setAssetImage] = useState<File | null>(null)
-  const [assetImagePreview, setAssetImagePreview] = useState('')
+  const [newPhotos, setNewPhotos] = useState<File[]>([])
+  const [photoErr, setPhotoErr] = useState('')
   const [editingAssetId, setEditingAssetId] = useState<number | null>(null)
   const [reading, setReading] = useState(false)
   const [estimated, setEstimated] = useState(false)
@@ -46,17 +46,6 @@ export default function Assets() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id, selected?.default_depreciation_method, selected?.let_share])
 
-  // Object URL for the not-yet-uploaded asset photo, so you can check it before saving.
-  useEffect(() => {
-    if (!assetImage) {
-      setAssetImagePreview('')
-      return
-    }
-    const url = URL.createObjectURL(assetImage)
-    setAssetImagePreview(url)
-    return () => URL.revokeObjectURL(url)
-  }, [assetImage])
-
   const resetForm = () => {
     setEditingAssetId(null)
     setEstimated(false)
@@ -71,7 +60,8 @@ export default function Assets() {
       low_value_pool: false,
     })
     if (assetFileRef.current) assetFileRef.current.value = ''
-    setAssetImage(null)
+    setNewPhotos([])
+    setPhotoErr('')
   }
 
   const startEdit = (a: Asset) => {
@@ -88,7 +78,8 @@ export default function Assets() {
       low_value_pool: a.low_value_pool,
     })
     if (assetFileRef.current) assetFileRef.current.value = ''
-    setAssetImage(null)
+    setNewPhotos([])
+    setPhotoErr('')
     setError('')
     setNotice(`Editing “${a.name}”.`)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -126,7 +117,6 @@ export default function Assets() {
     body.append('business_use_pct', form.business_use_pct || '1')
     body.append('low_value_pool', String(form.low_value_pool))
     body.append('effective_life_is_estimate', String(estimated))
-    if (assetImage) body.append('image', assetImage)
 
     try {
       let assetId: number
@@ -152,6 +142,12 @@ export default function Assets() {
         receiptBody.append('asset', String(assetId))
         receiptBody.append('original_name', receipt.name)
         await api('/api/receipts/', { method: 'POST', body: receiptBody })
+      }
+      for (const photo of newPhotos) {
+        const photoBody = new FormData()
+        photoBody.append('asset', String(assetId))
+        photoBody.append('image', photo)
+        await api('/api/asset-photos/', { method: 'POST', body: photoBody })
       }
       resetForm()
       await load()
@@ -209,13 +205,14 @@ export default function Assets() {
       <p className="sub">
         Register plant &amp; equipment and building works. Depreciation is calculated
         per financial year (prime cost or diminishing value), pro-rated for days held
-        and scaled by business use. Attach the purchase receipt (PDF or image) when you
-        add an asset, or later from the assets table.
+        and scaled by business use. Attach the purchase receipt (PDF or image) and any
+        number of photos of the asset when you add it, or later from the assets table.
       </p>
 
       {!selected ? <Alert kind="info">Create a property first.</Alert> : null}
       {notice ? <Alert kind="ok">{notice}</Alert> : null}
       {error ? <Alert kind="err">{error}</Alert> : null}
+      {photoErr ? <Alert kind="err">{photoErr}</Alert> : null}
 
       <form className="panel" onSubmit={save}>
         <h2>{editingAssetId ? 'Edit asset' : 'Add an asset'}</h2>
@@ -262,36 +259,16 @@ export default function Assets() {
             <input type="file" accept="application/pdf,image/*" ref={assetFileRef} />
           </div>
           <div>
-            <label>Asset photo</label>
+            <label>Asset photos</label>
             <PhotoPicker
               disabled={!selected}
-              onPick={setAssetImage}
-              hint="Take a photo, or choose one already on your device."
+              onPick={(file) => setNewPhotos((prev) => [...prev, file])}
+              hint="Take a photo, or choose one — add as many as you like."
             />
-            {assetImage ? (
-              <div className="row" style={{ marginTop: 8, alignItems: 'center', gap: 8 }}>
-                {assetImagePreview ? (
-                  <img
-                    src={assetImagePreview}
-                    alt="Selected asset photo"
-                    style={{
-                      width: 44,
-                      height: 44,
-                      objectFit: 'cover',
-                      borderRadius: 6,
-                      border: '1px solid var(--line)',
-                      display: 'block',
-                    }}
-                  />
-                ) : null}
-                <span className="muted" style={{ fontSize: 13 }}>
-                  {assetImage.name}
-                </span>
-                <button type="button" className="ghost small" onClick={() => setAssetImage(null)}>
-                  Remove
-                </button>
-              </div>
-            ) : null}
+            <StagedPhotoList
+              files={newPhotos}
+              onRemove={(i) => setNewPhotos((prev) => prev.filter((_, n) => n !== i))}
+            />
           </div>
           <button
             type="button"
@@ -377,24 +354,7 @@ export default function Assets() {
                       ) : null}
                     </td>
                     <td>
-                      {a.image_url ? (
-                        <a href={a.image_url} target="_blank" rel="noreferrer">
-                          <img
-                            src={a.image_url}
-                            alt={a.name}
-                            style={{
-                              width: 44,
-                              height: 44,
-                              objectFit: 'cover',
-                              borderRadius: 6,
-                              border: '1px solid var(--line)',
-                              display: 'block',
-                            }}
-                          />
-                        </a>
-                      ) : (
-                        '—'
-                      )}
+                      <AssetPhotosCell asset={a} onChanged={load} onError={setPhotoErr} />
                     </td>
                     <td>{a.purchase_date}</td>
                     <td className="num">{money(a.cost)}</td>
@@ -428,7 +388,7 @@ export default function Assets() {
               {items.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="muted">
-                    No assets yet — add one above (attach its purchase receipt if you have it).
+                    No assets yet — add one above (photos and the purchase receipt are optional).
                   </td>
                 </tr>
               ) : null}
@@ -489,6 +449,116 @@ function AssetReceiptCell({ asset, onUploaded }: { asset: Asset; onUploaded: () 
           !
         </span>
       ) : null}
+    </div>
+  )
+}
+
+/** Thumbnails for photos staged in the form, before the asset is saved. */
+function StagedPhotoList({ files, onRemove }: { files: File[]; onRemove: (i: number) => void }) {
+  const urls = useMemo(() => files.map((f) => URL.createObjectURL(f)), [files])
+  useEffect(() => () => urls.forEach((u) => URL.revokeObjectURL(u)), [urls])
+  if (files.length === 0) return null
+  return (
+    <div className="row" style={{ marginTop: 8, gap: 8, flexWrap: 'wrap' }}>
+      {files.map((f, i) => (
+        <div key={`${f.name}-${i}`} style={{ textAlign: 'center' }}>
+          <img
+            src={urls[i]}
+            alt={f.name}
+            style={{
+              width: 56,
+              height: 56,
+              objectFit: 'cover',
+              borderRadius: 6,
+              border: '1px solid var(--line)',
+              display: 'block',
+            }}
+          />
+          <button type="button" className="ghost small" onClick={() => onRemove(i)}>
+            Remove
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * An asset's photo gallery: every photo as a thumbnail (tap to open full size,
+ * with a small “×” to remove), plus a Take / Choose control to add another.
+ */
+function AssetPhotosCell({
+  asset,
+  onChanged,
+  onError,
+}: {
+  asset: Asset
+  onChanged: () => void
+  onError: (msg: string) => void
+}) {
+  const [busy, setBusy] = useState(false)
+
+  const add = async (file: File) => {
+    setBusy(true)
+    onError('')
+    const body = new FormData()
+    body.append('asset', String(asset.id))
+    body.append('image', file)
+    try {
+      await api('/api/asset-photos/', { method: 'POST', body })
+      onChanged()
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Upload failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const remove = async (p: AssetPhoto) => {
+    if (!window.confirm('Remove this photo?')) return
+    onError('')
+    try {
+      await api(`/api/asset-photos/${p.id}/`, { method: 'DELETE' })
+      onChanged()
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Could not remove the photo')
+    }
+  }
+
+  return (
+    <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+      {asset.photos.map((p) => (
+        <span key={p.id} style={{ position: 'relative', display: 'inline-block' }}>
+          <a href={p.image_url ?? '#'} target="_blank" rel="noreferrer">
+            <img
+              src={p.image_url ?? ''}
+              alt={asset.name}
+              style={{
+                width: 44,
+                height: 44,
+                objectFit: 'cover',
+                borderRadius: 6,
+                border: '1px solid var(--line)',
+                display: 'block',
+              }}
+            />
+          </a>
+          <button
+            type="button"
+            className="photo-remove"
+            title="Remove photo"
+            onClick={() => remove(p)}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      <PhotoPicker
+        disabled={busy}
+        onPick={add}
+        takeLabel="📷 Take"
+        chooseLabel="＋ Photo"
+      />
     </div>
   )
 }

@@ -228,3 +228,13 @@ tr.selected-row { background: #f2f8f5; }
 
   h1 { font-size: 20px; }
 }
+
+/* Small "x" badge on an asset-photo thumbnail to remove it */
+.photo-remove {
+  position: absolute; top: -7px; right: -7px;
+  width: 18px; height: 18px; padding: 0; line-height: 1;
+  border-radius: 50%; border: 1px solid var(--line);
+  background: var(--panel); color: var(--muted);
+  font-size: 13px; cursor: pointer;
+}
+.photo-remove:hover { color: var(--danger); border-color: var(--danger); }

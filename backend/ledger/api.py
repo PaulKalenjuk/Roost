@@ -23,6 +23,7 @@ from . import fiscal, pdf, receipts_zip, reports
 from .importers import airbnb_pdf
 from .models import (
     Asset,
+    AssetPhoto,
     Category,
     EarningsSummary,
     Expense,
@@ -39,6 +40,7 @@ from .models import (
     UtilityType,
 )
 from .serializers import (
+    AssetPhotoSerializer,
     AssetSerializer,
     CategorySerializer,
     EarningsSummarySerializer,
@@ -218,6 +220,23 @@ class AssetViewSet(viewsets.ModelViewSet):
         asset = self.get_object()
         entries = depreciation_lib.recompute_schedule(asset)
         return Response({"entries": len(entries)})
+
+
+class AssetPhotoViewSet(viewsets.ModelViewSet):
+    """Photos attached to an asset (several per asset).
+
+    * ``GET /api/asset-photos/?asset=<id>`` - the photos for one asset.
+    * ``POST /api/asset-photos/`` - multipart ``asset`` + ``image`` (+ optional
+      ``caption``).
+    * ``DELETE /api/asset-photos/<id>/`` - remove a photo (and its file).
+    """
+
+    serializer_class = AssetPhotoSerializer
+
+    def get_queryset(self):
+        qs = AssetPhoto.objects.all()
+        asset = self.request.query_params.get("asset")
+        return qs.filter(asset_id=asset) if asset else qs
 
 
 class ReservationViewSet(viewsets.ModelViewSet):

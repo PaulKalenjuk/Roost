@@ -786,12 +786,6 @@ class Asset(TimestampedModel):
     disposal_value = models.DecimalField(
         max_digits=12, decimal_places=2, null=True, blank=True
     )
-    image = models.ImageField(
-        upload_to="assets/%Y/%m/",
-        blank=True,
-        null=True,
-        help_text="A photo of the asset (optional).",
-    )
     notes = models.TextField(blank=True)
 
     class Meta:
@@ -810,16 +804,32 @@ class Asset(TimestampedModel):
         ``Receipt.asset`` FK is SET_NULL (so they'd otherwise be orphaned)."""
         for receipt in list(self.receipts.all()):
             receipt.delete()
-        image = self.image
-        storage = image.storage if image else None
-        name = image.name if image else None
-        result = super().delete(*args, **kwargs)
-        if storage and name:
-            storage.delete(name)
-        return result
+        # Photos cascade (AssetPhoto.asset is CASCADE); their stored files are
+        # removed by the ``post_delete`` signal below.
+        return super().delete(*args, **kwargs)
 
     def __str__(self):
         return f"{self.name} ({self.get_kind_display()})"
+
+
+class AssetPhoto(TimestampedModel):
+    """A photo of an asset.
+
+    An asset can have several (front, back, serial/model plate, damage, …), so
+    they live in their own table rather than a single field on :class:`Asset`.
+    """
+
+    asset = models.ForeignKey(
+        Asset, on_delete=models.CASCADE, related_name="photos"
+    )
+    image = models.ImageField(upload_to="assets/%Y/%m/")
+    caption = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+
+    def __str__(self):
+        return self.caption or (self.image.name if self.image else "photo")
 
 
 class DepreciationEntry(TimestampedModel):
@@ -1047,6 +1057,13 @@ def _delete_receipts_with_asset(sender, instance, **kwargs):
     """Cascade-safe cleanup: an asset's receipts go with it."""
     for receipt in list(Receipt.objects.filter(asset=instance)):
         receipt.delete()
+
+
+@receiver(post_delete, sender=AssetPhoto)
+def _delete_asset_photo_image(sender, instance, **kwargs):
+    """Cascade-safe cleanup: an asset photo's stored file goes with its row."""
+    if instance.image:
+        instance.image.delete(save=False)
 
 
 @receiver(post_delete, sender=Expense)

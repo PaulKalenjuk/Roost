@@ -14,7 +14,8 @@ config.
 - **Utilities** — the claimable portion is worked out from the **percentage of
   the dwelling that is let** (floor-area based, or a manual override).
 - **Depreciating assets** — asset register with prime-cost / diminishing-value
-  schedules, effective life and business-use %.
+  schedules, effective life and business-use %, plus any number of photos of
+  each asset.
 - **Owners** — any number of owners, each with a share that must total 100%.
 - **Reporting** — per financial year (AU FY, 1 Jul – 30 Jun) *and per owner*,
   breaking the calculation down.
@@ -122,7 +123,7 @@ sections:
 | **Income** | import the Airbnb earnings **PDF** (monthly totals, overwrites, **original PDF kept**), view monthly earnings, import history + reservations |
 | **Expenses** | two tabs — **Ad hoc** (with receipt upload) and **Utilities** |
 | **Receipts** | capture a receipt photo, **highlight** the lines on it, save to *unallocated*, then **Process with AI** (sums the highlighted lines + suggests a category) and file it as an expense |
-| **Depreciating assets** | asset register + built schedules, receipt upload, rebuild schedules |
+| **Depreciating assets** | asset register + built schedules, receipt upload, multiple asset photos, rebuild schedules |
 | **Reporting** | per-FY report with the maths shown, optional per-owner split |
 
 It works on a phone as well as a desktop: below **880px** the left menu collapses
@@ -176,7 +177,7 @@ Session-authenticated (the same login as `/admin/`) with DRF:
 /api/unallocated/               # captured receipt photos awaiting a category
 /api/unallocated/<id>/process/   # read the highlighted lines (vision) + suggest a category
 /api/unallocated/<id>/allocate/  # create the Expense (photo attached as its receipt)
-/api/assets/ (+ /recompute/)  /api/reservations/ /api/monthly-earnings/
+/api/assets/ (+ /recompute/)  /api/asset-photos/?asset=  /api/reservations/  /api/monthly-earnings/
 /api/receipts/ /api/imports/?listing=&source=airbnb_pdf
 /api/income/import-pdf/        # multipart: file + listing (returns the retained report_url)
 /api/utilities/extract/        # multipart: file -> parsed bill fields (DeepSeek)

@@ -218,6 +218,15 @@ export interface DepreciationEntry {
   days_held: number | null
 }
 
+export interface AssetPhoto {
+  id: number
+  asset: number
+  image: string
+  image_url: string | null
+  caption: string
+  created_at: string
+}
+
 export interface Asset {
   id: number
   property: number
@@ -231,11 +240,10 @@ export interface Asset {
   business_use_pct: string
   low_value_pool: boolean
   effective_life_is_estimate: boolean
-  image: string | null
-  image_url: string | null
   disposed_date: string | null
   disposal_value: string | null
   notes: string
+  photos: AssetPhoto[]
   depreciation_entries: DepreciationEntry[]
   receipts: Receipt[]
 }

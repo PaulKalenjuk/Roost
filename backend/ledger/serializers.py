@@ -30,6 +30,7 @@ class BaseSerializer(serializers.ModelSerializer):
 
 from .models import (
     Asset,
+    AssetPhoto,
     Category,
     DepreciationEntry,
     EarningsSummary,
@@ -262,11 +263,25 @@ class DepreciationEntrySerializer(serializers.ModelSerializer):
                   "closing_value", "days_held"]
 
 
+class AssetPhotoSerializer(BaseSerializer):
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AssetPhoto
+        fields = ["id", "asset", "image", "image_url", "caption", "created_at"]
+
+    def get_image_url(self, obj):
+        request = self.context.get("request")
+        if obj.image and request:
+            return request.build_absolute_uri(obj.image.url)
+        return obj.image.url if obj.image else None
+
+
 class AssetSerializer(BaseSerializer):
     property_name = serializers.CharField(source="property.name", read_only=True)
     depreciation_entries = DepreciationEntrySerializer(many=True, read_only=True)
     receipts = ReceiptSerializer(many=True, read_only=True)
-    image_url = serializers.SerializerMethodField()
+    photos = AssetPhotoSerializer(many=True, read_only=True)
 
     class Meta:
         model = Asset
@@ -274,15 +289,9 @@ class AssetSerializer(BaseSerializer):
             "id", "property", "property_name", "name", "kind", "purchase_date",
             "cost", "effective_life_years", "method", "business_use_pct",
             "low_value_pool", "effective_life_is_estimate", "disposed_date",
-            "disposal_value", "notes", "image", "image_url",
+            "disposal_value", "notes", "photos",
             "depreciation_entries", "receipts",
         ]
-
-    def get_image_url(self, obj):
-        request = self.context.get("request")
-        if obj.image and request:
-            return request.build_absolute_uri(obj.image.url)
-        return obj.image.url if obj.image else None
 
 
 class EarningsSummarySerializer(BaseSerializer):

@@ -27,6 +27,7 @@ from .coverage import coverage_for
 from .importers import airbnb_csv, airbnb_pdf
 from .models import (
     Asset,
+    AssetPhoto,
     Category,
     DepreciationEntry,
     EarningsSummary,
@@ -1096,7 +1097,7 @@ class ExpenseExtractionTests(TestCase):
 
 
 class AssetImageAndDeleteTests(BaseLedgerTestCase):
-    """Asset photo upload, and deleting an asset cleans up after itself."""
+    """Asset photos (several per asset), and deleting an asset cleans up."""
 
     def setUp(self):
         super().setUp()
@@ -1130,32 +1131,53 @@ class AssetImageAndDeleteTests(BaseLedgerTestCase):
         self.assertEqual(response.status_code, 201, response.content)
         return response.json()
 
-    def test_create_asset_with_image_exposes_url(self):
-        body = self._create(image=self._png())
-        asset = Asset.objects.get()
-        self.assertTrue(asset.image.name.startswith("assets/"))
-        self.assertTrue(Path(self.tmp).joinpath(asset.image.name).exists())
-        self.assertIn("/media/assets/", body["image_url"])
-
-    def test_edit_keeps_image_when_not_supplied(self):
-        body = self._create(image=self._png())
-        original = Asset.objects.get().image.name
-        response = self.api.patch(
-            f"/api/assets/{body['id']}/", {"name": "Aircon v2"}, format="json"
+    def _add_photo(self, asset_id, name="ac.png"):
+        response = self.api.post(
+            "/api/asset-photos/",
+            {"asset": asset_id, "image": self._png(name)},
+            format="multipart",
         )
-        self.assertEqual(response.status_code, 200, response.content)
-        asset = Asset.objects.get()
-        self.assertEqual(asset.name, "Aircon v2")
-        self.assertEqual(asset.image.name, original)
+        self.assertEqual(response.status_code, 201, response.content)
+        return response.json()
 
-    def test_edit_replaces_image(self):
-        body = self._create(image=self._png("old.png"))
-        self.assertTrue(Asset.objects.get().image.name.endswith("old.png"))
-        response = self.api.patch(
-            f"/api/assets/{body['id']}/", {"image": self._png("new.png")}, format="multipart"
-        )
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertTrue(Asset.objects.get().image.name.endswith("new.png"))
+    def test_upload_photo_exposes_url(self):
+        body = self._create()
+        photo = self._add_photo(body["id"])
+        stored = AssetPhoto.objects.get()
+        self.assertTrue(stored.image.name.startswith("assets/"))
+        self.assertTrue(Path(self.tmp).joinpath(stored.image.name).exists())
+        self.assertIn("/media/assets/", photo["image_url"])
+        # The asset serializer carries the photos back.
+        asset_body = self.api.get(f"/api/assets/{body['id']}/").json()
+        self.assertEqual(len(asset_body["photos"]), 1)
+
+    def test_multiple_photos_per_asset(self):
+        body = self._create()
+        self._add_photo(body["id"], "front.png")
+        self._add_photo(body["id"], "serial.png")
+        self.assertEqual(AssetPhoto.objects.filter(asset_id=body["id"]).count(), 2)
+        asset_body = self.api.get(f"/api/assets/{body['id']}/").json()
+        self.assertEqual(len(asset_body["photos"]), 2)
+
+    def test_photo_list_filters_by_asset(self):
+        body = self._create()
+        other = self._create(name="Second asset")
+        self._add_photo(body["id"], "a.png")
+        self._add_photo(other["id"], "b.png")
+        listed = self.api.get(f"/api/asset-photos/?asset={body['id']}").json()
+        results = listed.get("results", listed)
+        self.assertEqual(len(results), 1)
+
+    def test_delete_photo_removes_its_file(self):
+        body = self._create()
+        photo = self._add_photo(body["id"])
+        stored = AssetPhoto.objects.get()
+        path = Path(self.tmp) / stored.image.name
+        self.assertTrue(path.exists())
+        response = self.api.delete(f"/api/asset-photos/{photo['id']}/")
+        self.assertEqual(response.status_code, 204, response.content)
+        self.assertFalse(AssetPhoto.objects.exists())
+        self.assertFalse(path.exists(), "photo file was left on disk")
 
     def test_edit_can_set_estimate_flag(self):
         body = self._create()
@@ -1168,7 +1190,7 @@ class AssetImageAndDeleteTests(BaseLedgerTestCase):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertTrue(Asset.objects.get().effective_life_is_estimate)
 
-    def test_delete_asset_removes_receipts_and_their_files(self):
+    def test_delete_asset_removes_receipts_photos_and_files(self):
         asset = Asset.objects.create(
             property=self.prop, name="X", purchase_date=dt.date(2025, 8, 1),
             cost=Decimal("10.00"),
@@ -1177,14 +1199,19 @@ class AssetImageAndDeleteTests(BaseLedgerTestCase):
             property=self.prop, asset=asset, original_name="r.pdf",
             file=SimpleUploadedFile("r.pdf", b"%PDF-1.4 fake"),
         )
-        path = Path(self.tmp) / receipt.file.name
-        self.assertTrue(path.exists())
+        photo = AssetPhoto.objects.create(asset=asset, image=self._png())
+        receipt_path = Path(self.tmp) / receipt.file.name
+        photo_path = Path(self.tmp) / photo.image.name
+        self.assertTrue(receipt_path.exists())
+        self.assertTrue(photo_path.exists())
 
         response = self.api.delete(f"/api/assets/{asset.id}/")
         self.assertEqual(response.status_code, 204)
         self.assertFalse(Asset.objects.filter(pk=asset.pk).exists())
         self.assertFalse(Receipt.objects.filter(pk=receipt.pk).exists())
-        self.assertFalse(path.exists(), "receipt file was left on disk")
+        self.assertFalse(AssetPhoto.objects.filter(pk=photo.pk).exists())
+        self.assertFalse(receipt_path.exists(), "receipt file was left on disk")
+        self.assertFalse(photo_path.exists(), "photo file was left on disk")
 
 
 class AdhocExpenseEditTests(BaseLedgerTestCase):
