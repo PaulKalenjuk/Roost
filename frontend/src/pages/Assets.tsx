@@ -199,6 +199,22 @@ export default function Assets() {
     await load()
   }
 
+  const editingAsset = editingAssetId
+    ? items.find((i) => i.id === editingAssetId) ?? null
+    : null
+
+  const removePhoto = async (p: AssetPhoto) => {
+    if (!window.confirm('Remove this photo?')) return
+    setPhotoErr('')
+    try {
+      await api(`/api/asset-photos/${p.id}/`, { method: 'DELETE' })
+      await load()
+      setNotice('Photo removed.')
+    } catch (err) {
+      setPhotoErr(err instanceof Error ? err.message : 'Could not remove the photo')
+    }
+  }
+
   return (
     <>
       <h1>Depreciating assets</h1>
@@ -260,10 +276,44 @@ export default function Assets() {
           </div>
           <div>
             <label>Asset photos</label>
+            {editingAsset && editingAsset.photos.length ? (
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                {editingAsset.photos.map((p) => (
+                  <span key={p.id} style={{ position: 'relative', display: 'inline-block' }}>
+                    <a href={p.image_url ?? '#'} target="_blank" rel="noreferrer">
+                      <img
+                        src={p.image_url ?? ''}
+                        alt={editingAsset.name}
+                        style={{
+                          width: 56,
+                          height: 56,
+                          objectFit: 'cover',
+                          borderRadius: 6,
+                          border: '1px solid var(--line)',
+                          display: 'block',
+                        }}
+                      />
+                    </a>
+                    <button
+                      type="button"
+                      className="photo-remove"
+                      title="Remove photo"
+                      onClick={() => removePhoto(p)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
             <PhotoPicker
               disabled={!selected}
               onPick={(file) => setNewPhotos((prev) => [...prev, file])}
-              hint="Take a photo, or choose one — add as many as you like."
+              hint={
+                editingAsset
+                  ? 'Take or choose more photos; they upload when you save.'
+                  : 'Take a photo, or choose one — add as many as you like.'
+              }
             />
             <StagedPhotoList
               files={newPhotos}
@@ -354,7 +404,7 @@ export default function Assets() {
                       ) : null}
                     </td>
                     <td>
-                      <AssetPhotosCell asset={a} onChanged={load} onError={setPhotoErr} />
+                      <AssetPhotosThumbs asset={a} />
                     </td>
                     <td>{a.purchase_date}</td>
                     <td className="num">{money(a.cost)}</td>
@@ -483,82 +533,28 @@ function StagedPhotoList({ files, onRemove }: { files: File[]; onRemove: (i: num
   )
 }
 
-/**
- * An asset's photo gallery: every photo as a thumbnail (tap to open full size,
- * with a small “×” to remove), plus a Take / Choose control to add another.
- */
-function AssetPhotosCell({
-  asset,
-  onChanged,
-  onError,
-}: {
-  asset: Asset
-  onChanged: () => void
-  onError: (msg: string) => void
-}) {
-  const [busy, setBusy] = useState(false)
-
-  const add = async (file: File) => {
-    setBusy(true)
-    onError('')
-    const body = new FormData()
-    body.append('asset', String(asset.id))
-    body.append('image', file)
-    try {
-      await api('/api/asset-photos/', { method: 'POST', body })
-      onChanged()
-    } catch (e) {
-      onError(e instanceof Error ? e.message : 'Upload failed')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const remove = async (p: AssetPhoto) => {
-    if (!window.confirm('Remove this photo?')) return
-    onError('')
-    try {
-      await api(`/api/asset-photos/${p.id}/`, { method: 'DELETE' })
-      onChanged()
-    } catch (e) {
-      onError(e instanceof Error ? e.message : 'Could not remove the photo')
-    }
-  }
-
+/** Read-only thumbnails of an asset's photos in the list. Photos are added or
+ *  removed from the Edit form, not here. */
+function AssetPhotosThumbs({ asset }: { asset: Asset }) {
+  if (!asset.photos.length) return <span className="muted">—</span>
   return (
-    <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+    <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
       {asset.photos.map((p) => (
-        <span key={p.id} style={{ position: 'relative', display: 'inline-block' }}>
-          <a href={p.image_url ?? '#'} target="_blank" rel="noreferrer">
-            <img
-              src={p.image_url ?? ''}
-              alt={asset.name}
-              style={{
-                width: 44,
-                height: 44,
-                objectFit: 'cover',
-                borderRadius: 6,
-                border: '1px solid var(--line)',
-                display: 'block',
-              }}
-            />
-          </a>
-          <button
-            type="button"
-            className="photo-remove"
-            title="Remove photo"
-            onClick={() => remove(p)}
-          >
-            ×
-          </button>
-        </span>
+        <a key={p.id} href={p.image_url ?? '#'} target="_blank" rel="noreferrer">
+          <img
+            src={p.image_url ?? ''}
+            alt={asset.name}
+            style={{
+              width: 44,
+              height: 44,
+              objectFit: 'cover',
+              borderRadius: 6,
+              border: '1px solid var(--line)',
+              display: 'block',
+            }}
+          />
+        </a>
       ))}
-      <PhotoPicker
-        disabled={busy}
-        onPick={add}
-        takeLabel="📷 Take"
-        chooseLabel="＋ Photo"
-      />
     </div>
   )
 }
