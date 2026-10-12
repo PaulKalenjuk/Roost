@@ -91,11 +91,19 @@ class _Collector:
         self.rows.append({**row, "file": name, "status": "ok"})
 
 
-def build_receipts_zip(property_obj, label, report=None, owners=None, show_working=False):
-    """Return ZIP bytes, or ``None`` when there is nothing to include."""
+def build_receipts_zip(
+    property_obj, label, report=None, owners=None, show_working=False, period_type="year"
+):
+    """Return ZIP bytes, or ``None`` when there is nothing to include.
+
+    ``period_type`` is ``year`` or ``quarter``; ``label`` is the FY or quarter
+    label.  Depreciation entries are keyed by financial year, so they follow the
+    FY that contains the period.
+    """
     from .models import Asset, DepreciationEntry, Expense, ImportBatch, UtilityBill
 
-    start, end = fiscal.fy_bounds(label)
+    start, end = fiscal.period_bounds(period_type, label)
+    fy_label = label[:9] if period_type == "quarter" else label
     buffer = io.BytesIO()
 
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -148,7 +156,7 @@ def build_receipts_zip(property_obj, label, report=None, owners=None, show_worki
         # Receipts for assets depreciated in the year.
         asset_ids = (
             DepreciationEntry.objects.filter(
-                asset__property=property_obj, financial_year=label
+                asset__property=property_obj, financial_year=fy_label
             )
             .values_list("asset_id", flat=True)
             .distinct()

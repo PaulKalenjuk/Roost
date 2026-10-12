@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, money, pct } from '../api'
-import { Alert, Field, Loading } from '../components'
+import { Alert, Loading } from '../components'
 import { useProperties } from '../store'
 
 type Num = number | string | null
@@ -13,9 +13,20 @@ interface MonthRow {
   tax_withheld: Num
   total_earnings: Num
 }
+interface IncomeTypeRow {
+  income_type: number
+  name: string
+  owner_name: string | null
+  frequency_label: string
+  gross: Num
+  amount: Num
+  gst: Num
+}
 interface Report {
   property: string
   financial_year: string
+  period_label: string
+  period_type: 'year' | 'quarter'
   period: [string, string]
   let_share: Num
   gst_registered: boolean
@@ -24,27 +35,33 @@ interface Report {
     service_fees: Num
     tax_withheld: Num
     total_earnings: Num
+    gst_collected: Num
     nights_booked: number
     months: MonthRow[]
+    by_type: IncomeTypeRow[]
   }
   expenses: {
     total_amount: Num
     total_deductible: Num
+    gst_total: Num
+    gst_claimable: Num
     by_category: Record<string, { amount: Num; deductible: Num }>
     notes?: string[]
     items: Array<{ date: string; category: string; description: string; amount: Num; apportionment: string; share: Num; deductible_amount: Num; detail?: string; working?: string }>
   }
   depreciation: {
     total_deduction: Num
+    prorated?: boolean
     lines: Array<{ asset: string; method: string; opening_value: Num; business_use_pct: Num; deduction: Num; closing_value: Num; days_held: number | null; working?: string }>
   }
+  gst: { collected: Num; credits: Num; net: Num } | null
   net_rental_result: Num
 }
 interface OwnerView {
   owner: string
   owner_email: string
   share: Num
-  income: { gross_earnings: Num; total_earnings: Num }
+  income: { gross_earnings: Num; total_earnings: Num; gst_collected: Num }
   expenses_by_category: Record<string, { deductible: Num }>
   expenses_deductible: Num
   depreciation: Num
@@ -53,13 +70,21 @@ interface OwnerView {
 interface ReportResponse {
   report: Report
   owners?: OwnerView[]
+  period_type: 'year' | 'quarter'
+  period_value: string
   fy_options: string[]
+  quarter_options: string[]
+  default_fy: string
+  default_quarter: string
 }
 
 export default function Reporting() {
   const { selected } = useProperties()
+  const [periodType, setPeriodType] = useState<'year' | 'quarter'>('year')
   const [fy, setFy] = useState('')
+  const [quarter, setQuarter] = useState('')
   const [fyOptions, setFyOptions] = useState<string[]>([])
+  const [quarterOptions, setQuarterOptions] = useState<string[]>([])
   const [includeOwners, setIncludeOwners] = useState(true)
   const [recompute, setRecompute] = useState(false)
   const [working, setWorking] = useState(true)
@@ -67,69 +92,109 @@ export default function Reporting() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  const run = async () => {
-    if (!selected) return
-    setLoading(true)
-    setError('')
-    try {
-      const params = new URLSearchParams({ property: String(selected.id) })
-      if (fy) params.set('fy', fy)
-      if (includeOwners) params.set('owners', '1')
-      if (recompute) params.set('recompute', '1')
-      if (working) params.set('working', '1')
-      const result = await api<ReportResponse>(`/api/reports/fy/?${params}`)
-      setData(result)
-      if (!fy && result.fy_options.length) setFy(result.report.financial_year)
-      setFyOptions(result.fy_options)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Report failed')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
-    setData(null)
-    if (selected) run()
+    if (!selected) {
+      setData(null)
+      return
+    }
+    let cancelled = false
+    const go = async () => {
+      setLoading(true)
+      setError('')
+      try {
+        const params = new URLSearchParams({ property: String(selected.id), period: periodType })
+        if (periodType === 'year' && fy) params.set('fy', fy)
+        if (periodType === 'quarter' && quarter) params.set('quarter', quarter)
+        if (includeOwners) params.set('owners', '1')
+        if (recompute) params.set('recompute', '1')
+        if (working) params.set('working', '1')
+        const result = await api<ReportResponse>(`/api/reports/fy/?${params}`)
+        if (cancelled) return
+        setData(result)
+        setFyOptions(result.fy_options)
+        setQuarterOptions(result.quarter_options ?? [])
+        // Adopt the period the server resolved (its default when we sent none).
+        if (periodType === 'year' && !fy) setFy(result.period_value)
+        if (periodType === 'quarter' && !quarter) setQuarter(result.period_value)
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Report failed')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    go()
+    return () => {
+      cancelled = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.id])
+  }, [selected?.id, periodType, fy, quarter])
+
+  const periodQuery = () => {
+    const params = new URLSearchParams({ property: String(selected?.id ?? ''), period: periodType })
+    if (periodType === 'year' && fy) params.set('fy', fy)
+    if (periodType === 'quarter' && quarter) params.set('quarter', quarter)
+    return params
+  }
 
   const exportReceipts = () => {
     if (!selected) return
-    const params = new URLSearchParams({ property: String(selected.id) })
-    if (fy) params.set('fy', fy)
+    const params = periodQuery()
     if (includeOwners) params.set('owners', '1')
     if (working) params.set('working', '1')
     window.open(`/api/reports/fy/receipts/?${params.toString()}`, '_blank')
   }
 
-  const report = data?.report
-
   const exportPdf = () => {
     if (!selected) return
-    const params = new URLSearchParams({ property: String(selected.id) })
-    if (fy) params.set('fy', fy)
+    const params = periodQuery()
     if (includeOwners) params.set('owners', '1')
     if (working) params.set('working', '1')
     if (recompute) params.set('recompute', '1')
     window.open(`/api/reports/fy/pdf/?${params.toString()}`, '_blank')
   }
 
+  const report = data?.report
+  const options = periodType === 'quarter' ? quarterOptions : fyOptions
+
   return (
     <>
       <h1>Reporting</h1>
-      <p className="sub">Per financial year (1 July – 30 June), with the maths shown and an optional per-owner split.</p>
+      <p className="sub">
+        Report by financial year (1 July – 30 June) or by quarter (BAS periods:
+        Jul–Sep, Oct–Dec, Jan–Mar, Apr–Jun), with the maths shown and an optional
+        per-owner split.
+      </p>
 
       {!selected ? <Alert kind="info">Create a property first.</Alert> : null}
 
       <div className="panel">
         <div className="row">
           <div>
-            <label>Financial year</label>
-            <select value={fy} onChange={(e) => setFy(e.target.value)}>
-              {(fyOptions.length ? fyOptions : ['']).map((o) => (
+            <label>Report by</label>
+            <select
+              value={periodType}
+              onChange={(e) => {
+                setPeriodType(e.target.value as 'year' | 'quarter')
+                // Clear the value so the server's sensible default applies.
+                setFy('')
+                setQuarter('')
+              }}
+            >
+              <option value="year">Financial year</option>
+              <option value="quarter">Quarter</option>
+            </select>
+          </div>
+          <div>
+            <label>{periodType === 'quarter' ? 'Quarter' : 'Financial year'}</label>
+            <select
+              value={periodType === 'quarter' ? quarter : fy}
+              onChange={(e) =>
+                periodType === 'quarter' ? setQuarter(e.target.value) : setFy(e.target.value)
+              }
+            >
+              {(options.length ? options : ['']).map((o) => (
                 <option key={o} value={o}>
-                  {o || 'current'}
+                  {o || 'default'}
                 </option>
               ))}
             </select>
@@ -155,15 +220,16 @@ export default function Reporting() {
               <option value="false">No</option>
             </select>
           </div>
-          <button onClick={run} disabled={!selected}>
-            Run report
-          </button>
           <button className="ghost" onClick={exportPdf} disabled={!selected}>
             Export PDF
           </button>
           <button className="ghost" onClick={exportReceipts} disabled={!selected}>
             Export receipts (ZIP)
           </button>
+        </div>
+        <div className="hint">
+          Defaults: the previous quarter when reporting quarterly, the previous
+          financial year when reporting yearly.
         </div>
       </div>
 
@@ -174,7 +240,7 @@ export default function Reporting() {
         <>
           <div className="panel">
             <h2>
-              {report.property} — {report.financial_year}
+              {report.property} — {report.period_label ?? report.financial_year}
             </h2>
             <p className="muted">
               {report.period?.[0]} → {report.period?.[1]} · Let share {pct(report.let_share)} · GST{' '}
@@ -212,6 +278,34 @@ export default function Reporting() {
                 </tfoot>
               </table>
             </div>
+
+            {report.income.by_type?.length ? (
+              <>
+                <h3>Income by source</h3>
+                <div className="tablewrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Income source</th>
+                        <th>Owner</th>
+                        <th>Frequency</th>
+                        <th className="num">Net</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.income.by_type.map((t) => (
+                        <tr key={t.income_type}>
+                          <td>{t.name}</td>
+                          <td>{t.owner_name || '—'}</td>
+                          <td>{t.frequency_label}</td>
+                          <td className="num">{money(t.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : null}
 
             <h3>Expenses (claimable portion)</h3>
             <div className="tablewrap">
@@ -329,6 +423,39 @@ export default function Reporting() {
                 ) : null}
               </table>
             </div>
+            {report.depreciation.prorated ? (
+              <p className="muted">
+                Depreciation is prorated to the period from the financial-year schedule.
+              </p>
+            ) : null}
+
+            {report.gst ? (
+              <>
+                <h3>GST (BAS summary)</h3>
+                <div className="tablewrap">
+                  <table>
+                    <tbody>
+                      <tr>
+                        <td>GST collected on income</td>
+                        <td className="num">{money(report.gst.collected)}</td>
+                      </tr>
+                      <tr>
+                        <td>GST credits on claimable expenses</td>
+                        <td className="num">{money(report.gst.credits)}</td>
+                      </tr>
+                      <tr>
+                        <td>
+                          <strong>Net GST</strong>
+                        </td>
+                        <td className="num">
+                          <strong>{money(report.gst.net)}</strong>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : null}
 
             <h2 className="totals" style={{ marginTop: 18 }}>
               Net rental result: {money(report.net_rental_result)}

@@ -6,8 +6,12 @@ config.
 
 ## What it does
 
-- **Income** — pull Airbnb earnings into the ledger from the **earnings-report
-  PDF** (monthly totals) and/or the **transaction-history CSV** (per reservation).
+- **Income** — any number of **income sources** (the Airbnb listing, storage
+  rent, solar feed-in…), each with a **frequency** (monthly / quarterly / yearly)
+  and an optional **owner**. Enter one figure per period; a coverage view shows
+  which periods still need a figure. Airbnb earnings are pulled in from the
+  **earnings-report PDF** (monthly totals) and/or the **transaction-history CSV**
+  (per reservation), and land on the Airbnb income source.
 - **Expenses** — operating costs with **receipt attachments**.
 - **Receipts** — snap a receipt photo, **highlight** the lines that belong to a
   cost, and let AI add them up and suggest a category before filing.
@@ -54,17 +58,42 @@ python manage.py import_airbnb_pdf "/path/report.pdf" --listing "My Listing"
 python manage.py import_airbnb_csv "/path/transactions.csv" --listing "My Listing"
 ```
 
+## Income sources
+
+Airbnb is one income source among many. Each source belongs to a property, has a
+**frequency** (monthly / quarterly / yearly), an optional **owner**, and a
+"track from" date. You enter one **income figure** per period (with an optional
+gross and the GST collected). The coverage view lists the periods between the
+track-from date and today and flags the ones with no figure yet, so nothing is
+silently missed before a BAS or tax return.
+
+- Airbnb's own source is created automatically the first time you import an
+  earnings report; re-importing overwrites the same months (keyed on the source
+  and period).
+- An **owner** named on a source receives that income in full in the per-owner
+  report; income with no owner is split by the property's ownership shares as
+  before.
+
 ## Reporting
 
+Reports run per **financial year** (1 July – 30 June) or per **quarter** (BAS
+periods: Jul–Sep, Oct–Dec, Jan–Mar, Apr–Jun). The period is prorated by days, so
+a yearly figure still appears (proportionally) in a quarterly report and vice
+versa. When no period is chosen the report defaults to the **previous** financial
+year, or the **previous** quarter for a quarterly report.
+
 ```bash
-# property + FY (use 'current' for today's FY); --owners adds the split
+# property + FY (use 'current' / 'previous' for today's / last year); --owners adds the split
 python manage.py fy_report --property "My Property" --fy FY2025-26 --owners
 python manage.py fy_report --property "My Property" --fy FY2025-26 --recompute-depreciation
+# a quarter instead (overrides --fy):
+python manage.py fy_report --property "My Property" --quarter FY2025-26-Q3 --owners
 ```
 
-Output shows income by month, claimable expenses by category (with the
-apportionment used), depreciation per asset, the net rental result, and — with
-`--owners` — each owner's share of every line.
+Output shows income by month and by source, claimable expenses by category (with
+the apportionment used), depreciation per asset (prorated for a quarter), a GST
+(BAS) summary when GST-registered, the net rental result, and — with `--owners`
+— each owner's share of every line.
 
 The downloadable PDF repeats a table's **column headings** across page breaks,
 but each **subtotal** appears once, at the end of its table (rendered as an
@@ -120,11 +149,11 @@ sections:
 | Section | What it does |
 | --- | --- |
 | **Property setup** | dwelling, floor areas / let %, GST flag, depreciation-method default (ATO link), owners + shares, listings, property image (printed top-right on the FY PDF) |
-| **Income** | import the Airbnb earnings **PDF** (monthly totals, overwrites, **original PDF kept**), view monthly earnings, import history + reservations |
+| **Income** | income **sources** (name, owner, frequency, coverage start) with a per-period **coverage** view of what still needs entering; income figures; import the Airbnb earnings **PDF** (monthly totals, overwrites, **original PDF kept**), import history, nights booked + reservations |
 | **Expenses** | two tabs — **Ad hoc** (with receipt upload, vendor keyword search, date-range and category filters) and **Utilities** |
 | **Receipts** | capture a receipt photo, **highlight** the lines on it, save to *unallocated*, then **Process with AI** (sums the highlighted lines + suggests a category) and file it as an expense |
 | **Depreciating assets** | asset register + built schedules, receipt upload, multiple asset photos, rebuild schedules |
-| **Reporting** | per-FY report with the maths shown, optional per-owner split |
+| **Reporting** | per-FY **or per-quarter** report with the maths shown, a GST (BAS) summary, optional per-owner split. Defaults to the **previous** FY / the **previous** quarter |
 | **Backups** | log, local + Drive restore points, run now, Google Drive account |
 
 It works on a phone as well as a desktop: below **880px** the left menu collapses
@@ -174,6 +203,8 @@ Session-authenticated (the same login as `/admin/`) with DRF:
 ```
 /api/auth/{csrf,login,logout,me}/
 /api/properties/ /api/owners/ /api/ownerships/ /api/listings/ /api/categories/
+/api/income-types/ (+ /<id>/coverage/)  /api/income-entries/?income_type=&property=
+/api/income/coverage/?property=          # per-source period coverage
 /api/expenses/?kind=adhoc|utility  /api/utility-types/ /api/utility-bills/
 /api/unallocated/               # captured receipt photos awaiting a category
 /api/unallocated/<id>/process/   # read the highlighted lines (vision) + suggest a category
@@ -182,10 +213,10 @@ Session-authenticated (the same login as `/admin/`) with DRF:
 /api/receipts/ /api/imports/?listing=&source=airbnb_pdf
 /api/income/import-pdf/        # multipart: file + listing (returns the retained report_url)
 /api/utilities/extract/        # multipart: file -> parsed bill fields (DeepSeek)
-/api/reports/fy/?property=&fy=&owners=1&recompute=1
+/api/reports/fy/?property=&period=year|quarter&fy=|quarter=&owners=1&recompute=1
 /api/reports/fy/pdf/           # same report as a PDF
 /api/reports/fy/receipts/      # ZIP of every source file (receipts, bills, assets,
-                               #   earnings reports) behind the year
+                               #   earnings reports) behind the period
 ```
 
 ## Layout
@@ -200,13 +231,15 @@ roost/
     spa/                      # built SPA (generated; served by WhiteNoise)
     ledger/
       models.py               # Property, Listing, Owner, PropertyOwnership,
-                              # Reservation, MonthlyEarnings, Category, Expense,
+                              # Reservation, MonthlyEarnings, EarningsSummary,
+                              # IncomeType, IncomeEntry, Category, Expense,
                               # Receipt, UnallocatedExpense, Asset, DepreciationEntry,
                               # UtilityType, UtilityBill, ImportBatch
       serializers.py          # DRF serializers
       api.py / api_urls.py    # REST API
-      reports.py              # per-FY + per-owner reporting
-      receipts_zip.py         # FY source-file ZIP (receipts, bills, assets, earnings reports)
+      reports.py              # per-FY / per-quarter + per-owner reporting
+      coverage.py             # period-coverage maths (utilities by day, income by period)
+      receipts_zip.py         # source-file ZIP (receipts, bills, assets, earnings reports)
       apportionment.py        # let-share / deductibility maths
       depreciation.py         # prime-cost & diminishing-value schedules
       fiscal.py               # AU financial-year helpers

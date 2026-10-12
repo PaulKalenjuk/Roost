@@ -21,9 +21,9 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
-from . import apportionment, depreciation, reports
+from . import apportionment, depreciation, fiscal, reports
 from . import pdf as pdf_renderer
-from .coverage import coverage_for
+from .coverage import coverage_for, income_coverage
 from .importers import airbnb_csv, airbnb_pdf
 from .models import (
     Asset,
@@ -33,6 +33,8 @@ from .models import (
     EarningsSummary,
     Expense,
     ImportBatch,
+    IncomeEntry,
+    IncomeType,
     Listing,
     MonthlyEarnings,
     Owner,
@@ -1818,3 +1820,248 @@ class UtilityBillEditTests(BaseLedgerTestCase):
             Expense.objects.filter(pk=expense_id).exists(),
             "cascade left an orphaned expense",
         )
+
+
+class FiscalQuarterTests(TestCase):
+    """Quarter labels are aligned to the Australian financial year."""
+
+    def test_quarter_label_and_bounds(self):
+        self.assertEqual(fiscal.quarter_label(dt.date(2026, 10, 12)), "FY2026-27-Q2")
+        self.assertEqual(
+            fiscal.quarter_bounds("FY2026-27-Q1"),
+            (dt.date(2026, 7, 1), dt.date(2026, 9, 30)),
+        )
+        self.assertEqual(
+            fiscal.quarter_bounds("FY2026-27-Q2"),
+            (dt.date(2026, 10, 1), dt.date(2026, 12, 31)),
+        )
+        self.assertEqual(
+            fiscal.quarter_bounds("FY2025-26-Q3"),
+            (dt.date(2026, 1, 1), dt.date(2026, 3, 31)),
+        )
+        self.assertEqual(
+            fiscal.quarter_bounds("FY2025-26-Q4"),
+            (dt.date(2026, 4, 1), dt.date(2026, 6, 30)),
+        )
+
+    def test_previous_quarter(self):
+        self.assertEqual(fiscal.previous_quarter_label(dt.date(2026, 10, 12)), "FY2026-27-Q1")
+        self.assertEqual(fiscal.previous_quarter_label(dt.date(2026, 7, 1)), "FY2025-26-Q4")
+
+    def test_previous_fy(self):
+        self.assertEqual(fiscal.previous_fy_label(dt.date(2026, 10, 12)), "FY2025-26")
+        self.assertEqual(fiscal.previous_fy_label(dt.date(2026, 3, 1)), "FY2024-25")
+        self.assertEqual(fiscal.previous_fy_label(dt.date(2026, 6, 30)), "FY2024-25")
+
+
+class IncomeTypeTests(BaseLedgerTestCase):
+    """Generic income sources: entries, coverage and the API."""
+
+    def setUp(self):
+        super().setUp()
+        self.prop.purchase_date = dt.date(2025, 7, 1)
+        self.prop.save()
+        self.alice = Owner.objects.create(name="Alice")
+        self.storage = IncomeType.objects.create(
+            property=self.prop,
+            name="Storage rent",
+            frequency=IncomeType.FREQ_QUARTERLY,
+            owner=self.alice,
+            coverage_start=dt.date(2025, 7, 1),
+        )
+        user = User.objects.create_user("incomer", "i@example.com", "unused-pw")
+        self.api = APIClient()
+        self.api.force_login(user)
+
+    def test_entry_computes_financial_year(self):
+        entry = IncomeEntry.objects.create(
+            income_type=self.storage,
+            period_start=dt.date(2025, 7, 1),
+            period_end=dt.date(2025, 9, 30),
+            amount=Decimal("300.00"),
+        )
+        self.assertEqual(entry.financial_year, "FY2025-26")
+        # gross falls back to the amount when not given
+        self.assertEqual(entry.resolved_gross, Decimal("300.00"))
+
+    def test_coverage_flags_missing_periods(self):
+        IncomeEntry.objects.create(
+            income_type=self.storage,
+            period_start=dt.date(2025, 7, 1),
+            period_end=dt.date(2025, 9, 30),
+            amount=Decimal("300.00"),
+        )
+        result = income_coverage(self.storage, today=dt.date(2025, 12, 31))
+        self.assertTrue(result["computable"])
+        # Q1 (Jul-Sep) and Q2 (Oct-Dec) are both expected by 31 Dec.
+        self.assertEqual(result["total_periods"], 2)
+        self.assertEqual(result["entered_periods"], 1)
+        self.assertEqual(result["missing_periods"], 1)
+        self.assertEqual(result["missing"][0]["start"], "2025-10-01")
+        self.assertEqual(result["missing"][0]["end"], "2025-12-31")
+
+    def test_coverage_needs_a_start_date(self):
+        prop = Property.objects.create(name="No dates")
+        it = IncomeType.objects.create(property=prop, name="Something")
+        result = income_coverage(it)
+        self.assertFalse(result["computable"])
+        self.assertIn("purchase date", result["reason"])
+
+    def test_api_create_type_entry_and_coverage(self):
+        created = self.api.post(
+            "/api/income-types/",
+            {
+                "property": self.prop.id,
+                "name": "Solar feed-in",
+                "frequency": "monthly",
+                "coverage_start": "2025-07-01",
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        type_id = created.json()["id"]
+
+        entry = self.api.post(
+            "/api/income-entries/",
+            {
+                "income_type": type_id,
+                "period_start": "2025-07-01",
+                "period_end": "2025-07-31",
+                "amount": "45.00",
+                "gst_amount": "4.09",
+            },
+            format="json",
+        )
+        self.assertEqual(entry.status_code, 201, entry.content)
+        self.assertEqual(entry.json()["income_type_name"], "Solar feed-in")
+
+        listed = self.api.get(f"/api/income-entries/?property={self.prop.id}")
+        self.assertEqual(len(listed.json()["results"]), 1)
+
+        cov = self.api.get(f"/api/income-types/{type_id}/coverage/")
+        self.assertEqual(cov.status_code, 200, cov.content)
+        self.assertGreaterEqual(cov.json()["total_periods"], 1)
+
+    def test_api_requires_login(self):
+        self.api.logout()
+        self.assertIn(self.client.get("/api/income-types/").status_code, (401, 403))
+
+
+class AirbnbImportCreatesIncomeTests(BaseLedgerTestCase):
+    """The earnings-report import mirrors its months onto an income type."""
+
+    def test_import_creates_income_entries(self):
+        airbnb_pdf.import_report(SAMPLE_REPORT_TEXT, self.listing)
+        income_type = IncomeType.objects.get(listing=self.listing)
+        self.assertEqual(income_type.frequency, IncomeType.FREQ_MONTHLY)
+        entries = income_type.entries.order_by("period_start")
+        self.assertEqual(entries.count(), 2)
+        self.assertEqual(entries[0].amount, Decimal("48.50"))
+        self.assertEqual(entries[0].gross_amount, Decimal("50.00"))
+        self.assertEqual(entries[0].period_end, dt.date(2025, 7, 31))
+
+    def test_reimport_overwrites_the_same_entries(self):
+        airbnb_pdf.import_report(SAMPLE_REPORT_TEXT, self.listing)
+        updated = SAMPLE_REPORT_TEXT.replace("$50.00 AUD $48.50", "$80.00 AUD $77.60")
+        airbnb_pdf.import_report(updated, self.listing)
+        income_type = IncomeType.objects.get(listing=self.listing)
+        self.assertEqual(income_type.entries.count(), 2)  # not duplicated
+        july = income_type.entries.get(period_start=dt.date(2025, 7, 1))
+        self.assertEqual(july.amount, Decimal("77.60"))
+
+
+class GenericIncomeReportTests(BaseLedgerTestCase):
+    """Income from several sources both flows into the report."""
+
+    def setUp(self):
+        super().setUp()
+        self.prop.purchase_date = dt.date(2025, 7, 1)
+        self.prop.save()
+        airbnb_pdf.import_report(SAMPLE_REPORT_TEXT, self.listing)  # 97.00 total
+        storage = IncomeType.objects.create(
+            property=self.prop, name="Storage rent", frequency=IncomeType.FREQ_YEARLY
+        )
+        IncomeEntry.objects.create(
+            income_type=storage,
+            period_start=dt.date(2025, 7, 1),
+            period_end=dt.date(2026, 6, 30),
+            amount=Decimal("300.00"),
+            gst_amount=Decimal("27.27"),
+        )
+
+    def test_report_sums_all_income_sources(self):
+        report = reports.fy_report(self.prop, "FY2025-26")
+        self.assertEqual(report["income"]["total_earnings"], Decimal("397.00"))
+        names = {row["name"] for row in report["income"]["by_type"]}
+        self.assertEqual(names, {"Seaside Shack", "Storage rent"})
+        self.assertEqual(report["income"]["gst_collected"], Decimal("27.27"))
+
+    def test_quarterly_report_prorates_a_yearly_entry(self):
+        # Q1 = Jul-Sep 2025 is 92 of the FY's 365 days of the yearly entry.
+        report = reports.quarter_report(self.prop, "FY2025-26-Q1")
+        self.assertEqual(report["period_type"], "quarter")
+        # Airbnb months (Jul+Aug) are fully in Q1; the yearly entry is prorated.
+        self.assertEqual(
+            report["income"]["total_earnings"],
+            Decimal("97.00") + (Decimal("300.00") * 92 / 365).quantize(Decimal("0.01")),
+        )
+
+
+class ReportPeriodApiTests(BaseLedgerTestCase):
+    """The report defaults to the previous FY / previous quarter."""
+
+    def setUp(self):
+        super().setUp()
+        user = User.objects.create_user("reporter", "r@example.com", "unused-pw")
+        self.api = APIClient()
+        self.api.force_login(user)
+
+    def test_year_defaults_to_previous_fy(self):
+        body = self.api.get(f"/api/reports/fy/?property={self.prop.id}").json()
+        self.assertEqual(body["period_type"], "year")
+        self.assertEqual(body["period_value"], fiscal.previous_fy_label())
+
+    def test_quarter_defaults_to_previous_quarter(self):
+        body = self.api.get(
+            f"/api/reports/fy/?property={self.prop.id}&period=quarter"
+        ).json()
+        self.assertEqual(body["period_type"], "quarter")
+        self.assertEqual(body["period_value"], fiscal.previous_quarter_label())
+        start, end = fiscal.quarter_bounds(body["period_value"])
+        self.assertEqual(body["report"]["period"], [start.isoformat(), end.isoformat()])
+        self.assertIn(body["period_value"], body["quarter_options"])
+
+    def test_explicit_quarter_value(self):
+        body = self.api.get(
+            f"/api/reports/fy/?property={self.prop.id}&period=quarter&quarter=FY2025-26-Q3"
+        ).json()
+        self.assertEqual(body["report"]["period"], ["2026-01-01", "2026-03-31"])
+
+
+class IncomeOwnerAttributionTests(BaseLedgerTestCase):
+    """Income assigned to an owner goes to them in full; the rest is shared."""
+
+    def setUp(self):
+        super().setUp()
+        self.alice = Owner.objects.create(name="Alice")
+        self.bob = Owner.objects.create(name="Bob")
+        PropertyOwnership.objects.create(property=self.prop, owner=self.alice, share_pct=Decimal("0.6000"))
+        PropertyOwnership.objects.create(property=self.prop, owner=self.bob, share_pct=Decimal("0.4000"))
+        airbnb_pdf.import_report(SAMPLE_REPORT_TEXT, self.listing)  # 97.00, unowned
+        storage = IncomeType.objects.create(
+            property=self.prop, name="Storage", frequency=IncomeType.FREQ_YEARLY, owner=self.alice
+        )
+        IncomeEntry.objects.create(
+            income_type=storage,
+            period_start=dt.date(2025, 7, 1),
+            period_end=dt.date(2026, 6, 30),
+            amount=Decimal("300.00"),
+        )
+
+    def test_income_is_attributed_then_shared(self):
+        _report, owners = reports.owner_reports(self.prop, "FY2025-26")
+        by = {o["owner"]: o for o in owners}
+        # Alice: 300 owned + 60% of the 97 unowned
+        self.assertEqual(by["Alice"]["income"]["total_earnings"], Decimal("358.20"))
+        # Bob: just 40% of the 97 unowned
+        self.assertEqual(by["Bob"]["income"]["total_earnings"], Decimal("38.80"))

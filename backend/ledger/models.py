@@ -453,6 +453,138 @@ class EarningsSummary(TimestampedModel):
 
 
 # ---------------------------------------------------------------------------
+# Income (generic sources beyond the Airbnb listing)
+# ---------------------------------------------------------------------------
+class IncomeType(TimestampedModel):
+    """A recurring income source for a property (Airbnb, storage rent, …).
+
+    Mirrors :class:`UtilityType`: pick a name, how often you receive a payment
+    (monthly / quarterly / yearly) and — optionally — whose income it is.  The
+    Airbnb listing, when present, is represented by an income type linked to
+    that listing, so its imported monthly figures flow through the same ledger.
+    """
+
+    FREQ_MONTHLY = "monthly"
+    FREQ_QUARTERLY = "quarterly"
+    FREQ_YEARLY = "yearly"
+    FREQUENCY_CHOICES = [
+        (FREQ_MONTHLY, "Monthly"),
+        (FREQ_QUARTERLY, "Quarterly"),
+        (FREQ_YEARLY, "Yearly"),
+    ]
+
+    property = models.ForeignKey(
+        Property, on_delete=models.CASCADE, related_name="income_types"
+    )
+    name = models.CharField(max_length=120, help_text="e.g. Airbnb, Storage rent")
+    owner = models.ForeignKey(
+        Owner,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="income_types",
+        help_text="Whose income this is. Leave blank to split it by ownership share.",
+    )
+    frequency = models.CharField(
+        max_length=20, choices=FREQUENCY_CHOICES, default=FREQ_MONTHLY
+    )
+    listing = models.ForeignKey(
+        Listing,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="income_types",
+        help_text=(
+            "Tie this income type to a platform listing (e.g. the Airbnb listing) so "
+            "imported earnings land here. Leave blank for other income."
+        ),
+    )
+    coverage_start = models.DateField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Track this income from this date. Leave blank to use the property's "
+            "purchase date."
+        ),
+    )
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["property__name", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["property", "name"], name="uniq_income_type_per_property"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.get_frequency_display()})"
+
+
+class IncomeEntry(TimestampedModel):
+    """One period's income for an income type (a month, quarter or year).
+
+    ``amount`` is the income received for the period (net of any platform fee).
+    ``gross_amount`` records the pre-fee figure when it differs (Airbnb earnings
+    reports give both); it defaults to ``amount``.  ``gst_amount`` is the GST
+    collected, for BAS.  Airbnb imports upsert these keyed on ``external_id`` so
+    re-importing a report overwrites the same period rather than duplicating it.
+    """
+
+    income_type = models.ForeignKey(
+        IncomeType, on_delete=models.CASCADE, related_name="entries"
+    )
+    period_start = models.DateField(null=True, blank=True)
+    period_end = models.DateField(null=True, blank=True)
+
+    amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=ZERO, validators=[MinValueValidator(Decimal("0"))]
+    )
+    gross_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Gross income before any platform fee (defaults to the amount).",
+    )
+    gst_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=ZERO,
+        help_text="GST collected on this income (for BAS).",
+    )
+    received = models.BooleanField(default=True)
+
+    source = models.CharField(max_length=30, default="manual")
+    external_id = models.CharField(max_length=120, blank=True)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-period_start", "-id"]
+        verbose_name_plural = "income entries"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["income_type", "period_start", "period_end"],
+                name="uniq_income_entry_period",
+            )
+        ]
+
+    @property
+    def financial_year(self):
+        from . import fiscal
+
+        return fiscal.fy_label(self.period_start or self.period_end)
+
+    @property
+    def resolved_gross(self):
+        return self.gross_amount if self.gross_amount is not None else self.amount
+
+    def __str__(self):
+        when = self.period_start or self.period_end
+        return f"{self.income_type.name} · {when or '—'} · {self.amount}"
+
+
+# ---------------------------------------------------------------------------
 # Expenses & receipts
 # ---------------------------------------------------------------------------
 class Expense(TimestampedModel):

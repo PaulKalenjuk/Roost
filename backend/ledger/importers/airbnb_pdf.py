@@ -20,6 +20,7 @@ The uploaded PDF itself is **kept** on the :class:`~ledger.models.ImportBatch`
 (``report_file``), one copy per import, so the ledger stays auditable: every
 monthly total can be traced back to the exact document it was read from.
 """
+import calendar
 import datetime as dt
 import os
 import re
@@ -28,7 +29,14 @@ from decimal import Decimal, InvalidOperation
 from django.core.files.base import ContentFile
 from django.db import transaction
 
-from ..models import EarningsSummary, ImportBatch, Listing, MonthlyEarnings
+from ..models import (
+    EarningsSummary,
+    ImportBatch,
+    IncomeEntry,
+    IncomeType,
+    Listing,
+    MonthlyEarnings,
+)
 
 MONEY = r"\$?(-?[\d,]+\.\d{2})"
 MONTHS = {
@@ -255,12 +263,71 @@ def import_report(source, listing, filename=""):
     if not parsed["months"]:
         log_lines.append("no monthly rows found — is this an 'Earnings report' PDF?")
 
+    # Mirror the months onto the listing's income type, so Airbnb income flows
+    # through the same ledger as every other income source (and the income-typed
+    # coverage view can flag months with no figure).
+    entries_created = _upsert_income_entries(listing, parsed)
+    if entries_created is not None:
+        log_lines.append(f"income entries: {entries_created}")
+
     batch.log = "\n".join(log_lines)
     batch.finished_at = dt.datetime.now(dt.timezone.utc)
     batch.save()
 
     _upsert_period_summary(listing, parsed, filename=batch.filename)
     return batch
+
+
+def _income_type_for(listing):
+    """The income type that carries a listing's imported earnings.
+
+    Reuses an existing income type linked to the listing, or one with the same
+    name on the property; otherwise creates a monthly one linked to the listing.
+    """
+    income_type = IncomeType.objects.filter(listing=listing).first()
+    if income_type is not None:
+        return income_type
+    income_type = IncomeType.objects.filter(
+        property=listing.property, name=listing.name
+    ).first()
+    if income_type is not None:
+        if not income_type.listing_id:
+            income_type.listing = listing
+            income_type.save(update_fields=["listing"])
+        return income_type
+    return IncomeType.objects.create(
+        property=listing.property,
+        name=listing.name,
+        frequency=IncomeType.FREQ_MONTHLY,
+        listing=listing,
+    )
+
+
+def _upsert_income_entries(listing, parsed):
+    """Create/overwrite the income entries for a listing's imported months."""
+    if not parsed["months"]:
+        return None
+    income_type = _income_type_for(listing)
+    count = 0
+    for entry in parsed["months"]:
+        month = entry["month"]
+        last_day = calendar.monthrange(month.year, month.month)[1]
+        gross = entry["gross_earnings"]
+        total = entry["total_earnings"]
+        IncomeEntry.objects.update_or_create(
+            income_type=income_type,
+            period_start=month,
+            period_end=month.replace(day=last_day),
+            defaults={
+                "amount": total if total is not None else gross,
+                "gross_amount": gross,
+                "source": "airbnb_pdf",
+                "external_id": f"airbnb_pdf:{month:%Y-%m}",
+                "received": True,
+            },
+        )
+        count += 1
+    return count
 
 
 def _to_decimal(value):

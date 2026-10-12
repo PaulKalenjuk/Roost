@@ -29,6 +29,8 @@ from .models import (
     EarningsSummary,
     Expense,
     ImportBatch,
+    IncomeEntry,
+    IncomeType,
     Listing,
     MonthlyEarnings,
     Owner,
@@ -47,6 +49,8 @@ from .serializers import (
     EarningsSummarySerializer,
     ExpenseSerializer,
     ImportBatchSerializer,
+    IncomeEntrySerializer,
+    IncomeTypeSerializer,
     ListingSerializer,
     MonthlyEarningsSerializer,
     OwnerSerializer,
@@ -271,6 +275,39 @@ class EarningsSummaryViewSet(viewsets.ModelViewSet):
             qs = qs.filter(listing_id=listing)
         if fy:
             qs = qs.filter(financial_year=fy)
+        return qs
+
+
+class IncomeTypeViewSet(viewsets.ModelViewSet):
+    """Income sources for a property (Airbnb, storage rent, …)."""
+
+    serializer_class = IncomeTypeSerializer
+
+    def get_queryset(self):
+        qs = IncomeType.objects.select_related("property", "owner", "listing")
+        prop = self.request.query_params.get("property")
+        return qs.filter(property_id=prop) if prop else qs
+
+    @action(detail=True, methods=["get"], url_path="coverage")
+    def coverage(self, request, pk=None):
+        from . import coverage as coverage_lib
+
+        return Response(coverage_lib.income_coverage(self.get_object()))
+
+
+class IncomeEntryViewSet(viewsets.ModelViewSet):
+    """One period's income for an income type."""
+
+    serializer_class = IncomeEntrySerializer
+
+    def get_queryset(self):
+        qs = IncomeEntry.objects.select_related("income_type")
+        income_type = self.request.query_params.get("income_type")
+        prop = self.request.query_params.get("property")
+        if income_type:
+            qs = qs.filter(income_type_id=income_type)
+        if prop:
+            qs = qs.filter(income_type__property_id=prop)
         return qs
 
 
@@ -533,6 +570,23 @@ def extract_asset(request):
 
 
 @api_view(["GET"])
+def income_coverage(request):
+    """Coverage summary (which periods have a figure) for a property's income."""
+    prop_id = request.query_params.get("property")
+    if not prop_id:
+        return Response({"detail": "property is required."}, status=400)
+    prop = get_object_or_404(Property, pk=prop_id)
+    today = dt.date.today()
+    return Response({
+        "today": today.isoformat(),
+        "coverage": [
+            coverage_lib.income_coverage(it, today)
+            for it in prop.income_types.select_related("property", "owner").order_by("name")
+        ],
+    })
+
+
+@api_view(["GET"])
 def utilities_coverage(request):
     """Coverage summary for every utility type on a property."""
     prop_id = request.query_params.get("property")
@@ -565,16 +619,42 @@ def extract_bill(request):
     return Response(data)
 
 
+def _resolve_period(request):
+    """Resolve ``(period_type, value)`` from the query string.
+
+    ``period`` is ``year`` (default) or ``quarter``.  When no value is given we
+    default sensibly: the **previous** financial year, or the **previous**
+    quarter (BAS is filed after the quarter closes).
+    """
+    period_type = (request.query_params.get("period") or "year").lower()
+    if period_type == "quarter":
+        value = request.query_params.get("quarter") or fiscal.previous_quarter_label()
+    else:
+        period_type = "year"
+        value = request.query_params.get("fy") or fiscal.previous_fy_label()
+    return period_type, value
+
+
 @api_view(["GET"])
 def fy_report(request):
-    """Per-financial-year report as JSON (optionally split by owner)."""
+    """Per-period report as JSON (financial year or quarter; optional owners)."""
     prop = get_object_or_404(Property, pk=request.query_params.get("property"))
-    label = request.query_params.get("fy") or fiscal.fy_label(dt.date.today())
+    period_type, value = _resolve_period(request)
     recompute = request.query_params.get("recompute") in ("1", "true", "yes")
     include_owners = request.query_params.get("owners") in ("1", "true", "yes")
 
-    report, owners = reports.owner_reports(prop, label, recompute)
-    payload = {"report": report, "fy_options": _fy_options()}
+    report, owners = reports.owner_reports(
+        prop, value, recompute, period_type=period_type
+    )
+    payload = {
+        "report": report,
+        "period_type": period_type,
+        "period_value": value,
+        "fy_options": _fy_options(),
+        "quarter_options": _quarter_options(),
+        "default_fy": fiscal.previous_fy_label(),
+        "default_quarter": fiscal.previous_quarter_label(),
+    }
     if include_owners:
         payload["owners"] = owners
     return Response(payload)
@@ -582,19 +662,20 @@ def fy_report(request):
 
 @api_view(["GET"])
 def fy_receipts_zip(request):
-    """ZIP of the receipt files behind the year's calculations, by category."""
+    """ZIP of the receipt files behind the period's calculations, by category."""
     prop = get_object_or_404(Property, pk=request.query_params.get("property"))
-    label = request.query_params.get("fy") or fiscal.fy_label(dt.date.today())
+    period_type, label = _resolve_period(request)
     include_owners = request.query_params.get("owners") in ("1", "true", "yes")
     show_working = request.query_params.get("working") in ("1", "true", "yes")
 
-    report, owners = reports.owner_reports(prop, label)
+    report, owners = reports.owner_reports(prop, label, period_type=period_type)
     payload = receipts_zip.build_receipts_zip(
         prop,
         label,
         report=report,
         owners=owners if include_owners else [],
         show_working=show_working,
+        period_type=period_type,
     )
     if payload is None:
         return Response(
@@ -613,12 +694,14 @@ def fy_receipts_zip(request):
 def fy_report_pdf(request):
     """The same report as a downloadable PDF (honours owners + working flags)."""
     prop = get_object_or_404(Property, pk=request.query_params.get("property"))
-    label = request.query_params.get("fy") or fiscal.fy_label(dt.date.today())
+    period_type, label = _resolve_period(request)
     recompute = request.query_params.get("recompute") in ("1", "true", "yes")
     include_owners = request.query_params.get("owners") in ("1", "true", "yes")
     show_working = request.query_params.get("working") in ("1", "true", "yes")
 
-    report, owners = reports.owner_reports(prop, label, recompute)
+    report, owners = reports.owner_reports(
+        prop, label, recompute, period_type=period_type
+    )
     try:
         payload = pdf.render_report_pdf(
             report,
@@ -645,6 +728,18 @@ def _fy_options():
     today = dt.date.today()
     this_year = today.year if today.month >= 7 else today.year - 1
     return [f"FY{y}-{str(y + 1)[2:]}" for y in range(this_year, this_year - 6, -1)]
+
+
+def _quarter_options():
+    """The last eight quarters (newest first) for the reporting dropdown."""
+    today = dt.date.today()
+    options = []
+    label = fiscal.quarter_label(today)
+    for _ in range(8):
+        options.append(label)
+        start, _end = fiscal.quarter_bounds(label)
+        label = fiscal.quarter_label(start - dt.timedelta(days=1))
+    return options
 
 
 # --- Backups ----------------------------------------------------------------

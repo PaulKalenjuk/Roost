@@ -405,6 +405,66 @@ export interface Coverage {
   segments: CoverageSegment[]
 }
 
+export interface IncomeType {
+  id: number
+  property: number
+  name: string
+  owner: number | null
+  owner_name: string | null
+  frequency: 'monthly' | 'quarterly' | 'yearly'
+  listing: number | null
+  listing_name: string | null
+  coverage_start: string | null
+  notes: string
+}
+
+export interface IncomeEntry {
+  id: number
+  income_type: number
+  income_type_name: string
+  owner_name: string | null
+  period_start: string | null
+  period_end: string | null
+  amount: string
+  gross_amount: string | null
+  gst_amount: string
+  received: boolean
+  source: string
+  external_id: string
+  notes: string
+}
+
+export interface IncomePeriod {
+  start: string
+  end: string
+  entered: boolean
+  entry: number | null
+  amount: string | null
+}
+
+export interface IncomeCoverage {
+  income_type: number
+  name: string
+  property: number
+  property_name: string
+  owner: number | null
+  owner_name: string | null
+  frequency: string
+  frequency_label: string
+  entries: number
+  entries_missing_period: number
+  computable: boolean
+  reason: string | null
+  start: string | null
+  end: string | null
+  total_periods: number
+  entered_periods: number
+  missing_periods: number
+  coverage_pct: number
+  periods: IncomePeriod[]
+  missing: { start: string; end: string }[]
+}
+
 // ---- Helpers ----
 /** DRF list endpoints are paginated; accept either shape. */
 export function listOf<T>(data: unknown): T[] {

@@ -36,6 +36,8 @@ from .models import (
     EarningsSummary,
     Expense,
     ImportBatch,
+    IncomeEntry,
+    IncomeType,
     Listing,
     MonthlyEarnings,
     Owner,
@@ -130,6 +132,32 @@ class MonthlyEarningsSerializer(serializers.ModelSerializer):
             "adjustments", "service_fees", "tax_withheld", "total_earnings",
             "source", "source_file",
         ]
+
+
+class IncomeTypeSerializer(BaseSerializer):
+    owner_name = serializers.CharField(source="owner.name", read_only=True)
+    listing_name = serializers.CharField(source="listing.name", read_only=True)
+
+    class Meta:
+        model = IncomeType
+        fields = [
+            "id", "property", "name", "owner", "owner_name", "frequency",
+            "listing", "listing_name", "coverage_start", "notes",
+        ]
+
+
+class IncomeEntrySerializer(BaseSerializer):
+    income_type_name = serializers.CharField(source="income_type.name", read_only=True)
+    owner_name = serializers.CharField(source="income_type.owner.name", read_only=True)
+
+    class Meta:
+        model = IncomeEntry
+        fields = [
+            "id", "income_type", "income_type_name", "owner_name", "period_start",
+            "period_end", "amount", "gross_amount", "gst_amount", "received",
+            "source", "external_id", "notes",
+        ]
+        read_only_fields = ["source", "external_id"]
 
 
 class ReceiptSerializer(serializers.ModelSerializer):

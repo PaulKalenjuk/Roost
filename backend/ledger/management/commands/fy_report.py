@@ -1,4 +1,10 @@
-"""``python manage.py fy_report --property <id|name> --fy FY2025-26 [--owners]``"""
+"""Print a rental report.
+
+``python manage.py fy_report --property <id|name> --fy FY2025-26 [--owners]``
+``python manage.py fy_report --property <id|name> --quarter FY2025-26-Q3``
+
+``--fy`` accepts ``current`` / ``previous``; ``--quarter`` overrides ``--fy``.
+"""
 from django.core.management.base import BaseCommand, CommandError
 
 from ledger import fiscal, reports
@@ -12,8 +18,13 @@ class Command(BaseCommand):
         parser.add_argument("--property", required=True, help="Property id or name.")
         parser.add_argument(
             "--fy",
-            required=True,
-            help="Financial year label, e.g. FY2025-26. Use 'current' for today's FY.",
+            help=("Financial year label, e.g. FY2025-26. Use 'current' for today's FY, "
+                  "'previous' for the year just ended."),
+        )
+        parser.add_argument(
+            "--quarter",
+            help=("Quarter label, e.g. FY2025-26-Q3. Use 'current' / 'previous'. "
+                  "Overrides --fy when set."),
         )
         parser.add_argument(
             "--owners", action="store_true", help="Also print per-owner breakdowns."
@@ -25,15 +36,25 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        prop = self._resolve_property(options["property"])
-        label = options["fy"]
-        if label.lower() == "current":
-            import datetime as dt
+        import datetime as dt
 
+        prop = self._resolve_property(options["property"])
+        period_type = "year"
+        label = options["fy"]
+        if options["quarter"]:
+            period_type = "quarter"
+            label = options["quarter"]
+            if label.lower() == "current":
+                label = fiscal.current_quarter_label()
+            elif label.lower() == "previous":
+                label = fiscal.previous_quarter_label()
+        elif not label or label.lower() == "current":
             label = fiscal.fy_label(dt.date.today())
+        elif label.lower() == "previous":
+            label = fiscal.previous_fy_label()
 
         report, owner_views = reports.owner_reports(
-            prop, label, options["recompute_depreciation"]
+            prop, label, options["recompute_depreciation"], period_type=period_type
         )
         self.stdout.write(reports.format_report(report))
 

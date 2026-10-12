@@ -18,6 +18,26 @@ def _clamp(value, low, high):
     return max(low, min(high, value))
 
 
+def _month_bounds(d):
+    start = d.replace(day=1)
+    if d.month == 12:
+        nxt = d.replace(year=d.year + 1, month=1, day=1)
+    else:
+        nxt = d.replace(month=d.month + 1, day=1)
+    return start, nxt - ONE_DAY
+
+
+def income_period_bounds(frequency, date_obj):
+    """The month / quarter / year block containing ``date_obj`` (inclusive)."""
+    from . import fiscal
+
+    if frequency == "quarterly":
+        return fiscal.quarter_bounds(fiscal.quarter_label(date_obj))
+    if frequency == "yearly":
+        return fiscal.fy_bounds(fiscal.fy_label(date_obj))
+    return _month_bounds(date_obj)
+
+
 def coverage_for(utility_type, today=None):
     """Return a coverage summary dict for one :class:`~ledger.models.UtilityType`."""
     today = today or dt.date.today()
@@ -136,6 +156,109 @@ def coverage_for(utility_type, today=None):
                 }
                 for kind, s, e in segments
             ],
+        }
+    )
+    return result
+
+
+def income_coverage(income_type, today=None):
+    """Which periods for an income type have a figure, and which are missing.
+
+    Unlike utility coverage (which measures *days*), income is entered per
+    period, so we enumerate the expected periods — each month, quarter or year
+    from the start date up to today — and flag the ones with no figure yet.
+
+    Returns a summary dict with a ``periods`` list (``entered`` flag + amount)
+    and a ``missing`` list ready for the UI.
+    """
+    today = today or dt.date.today()
+    prop = income_type.property
+    entries = [e for e in income_type.entries.all() if e.period_start and e.period_end]
+    undated = income_type.entries.filter(period_start__isnull=True).count()
+    frequency = income_type.frequency
+
+    result = {
+        "income_type": income_type.id,
+        "name": income_type.name,
+        "property": prop.id,
+        "property_name": prop.name,
+        "owner": income_type.owner_id,
+        "owner_name": income_type.owner.name if income_type.owner_id else None,
+        "frequency": frequency,
+        "frequency_label": income_type.get_frequency_display(),
+        "entries": len(entries),
+        "entries_missing_period": undated,
+        "computable": False,
+        "reason": None,
+        "start": None,
+        "end": None,
+        "total_periods": 0,
+        "entered_periods": 0,
+        "missing_periods": 0,
+        "coverage_pct": 0.0,
+        "periods": [],
+        "missing": [],
+    }
+
+    start = income_type.coverage_start or prop.purchase_date
+    if start is None:
+        # Fall back to the earliest entry so a figure is still shown.
+        starts = [e.period_start for e in entries]
+        start = min(starts) if starts else None
+    if start is None:
+        result["reason"] = (
+            "Set the property's purchase date (or a coverage start on this income "
+            "type) to see which periods still need a figure."
+        )
+        return result
+
+    # Build the expected periods from `start` up to today (capped so we never
+    # run away if the dates are odd).
+    periods = []
+    cursor, _end0 = income_period_bounds(frequency, start)
+    guard = 0
+    while cursor <= today and guard < 600:
+        _, pend = income_period_bounds(frequency, cursor)
+        periods.append((cursor, pend))
+        cursor = pend + ONE_DAY
+        guard += 1
+
+    def entry_for(ps, pe):
+        for e in entries:
+            if e.period_start <= pe and e.period_end >= ps:
+                return e
+        return None
+
+    rows = []
+    missing = []
+    entered = 0
+    for ps, pe in periods:
+        match = entry_for(ps, pe)
+        row = {
+            "start": ps.isoformat(),
+            "end": pe.isoformat(),
+            "entered": match is not None,
+            "entry": match.id if match else None,
+            "amount": str(match.amount) if match else None,
+        }
+        rows.append(row)
+        if match is None:
+            missing.append({"start": row["start"], "end": row["end"]})
+        else:
+            entered += 1
+
+    total = len(periods)
+    result.update(
+        {
+            "computable": True,
+            "start": periods[0][0].isoformat() if periods else start.isoformat(),
+            "end": today.isoformat(),
+            "total_periods": total,
+            "entered_periods": entered,
+            "missing_periods": total - entered,
+            "coverage_pct": round(entered / total * 100, 1) if total else 0.0,
+            "periods": rows,
+            "missing": missing,
         }
     )
     return result

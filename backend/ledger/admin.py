@@ -10,6 +10,8 @@ from .models import (
     DepreciationEntry,
     Expense,
     ImportBatch,
+    IncomeEntry,
+    IncomeType,
     Listing,
     MonthlyEarnings,
     Owner,
@@ -199,6 +201,28 @@ class UtilityBillAdmin(admin.ModelAdmin):
                     "amount", "gst_amount", "paid", "claimable_amount")
     list_filter = ("utility_type", "paid")
     date_hierarchy = "bill_date"
+
+
+class IncomeEntryInline(admin.TabularInline):
+    model = IncomeEntry
+    extra = 0
+    fields = ("period_start", "period_end", "amount", "gross_amount",
+              "gst_amount", "received", "notes")
+
+
+@admin.register(IncomeType)
+class IncomeTypeAdmin(admin.ModelAdmin):
+    list_display = ("name", "property", "frequency", "owner", "listing")
+    list_filter = ("property", "frequency", "owner")
+    inlines = [IncomeEntryInline]
+
+
+@admin.register(IncomeEntry)
+class IncomeEntryAdmin(admin.ModelAdmin):
+    list_display = ("income_type", "period_start", "period_end", "amount",
+                    "gross_amount", "gst_amount", "received", "source")
+    list_filter = ("income_type", "received", "source")
+    date_hierarchy = "period_start"
 
 
 @admin.register(ImportBatch)

@@ -52,6 +52,87 @@ def fy_days(label):
     return (end - start).days + 1
 
 
+# --- Quarters ---------------------------------------------------------------
+#
+# Quarters are aligned to the Australian financial year (BAS periods):
+#   Q1 = Jul–Sep, Q2 = Oct–Dec, Q3 = Jan–Mar, Q4 = Apr–Jun.
+# A quarter label looks like ``"FY2025-26-Q3"`` (Q3 = Jan–Mar 2026).
+_QUARTER_OFFSETS = {1: (7, 0), 2: (10, 0), 3: (1, 1), 4: (4, 1)}
+
+
+def quarter_index(date_obj):
+    """Return the 1..4 quarter (within the FY) containing ``date_obj``."""
+    month = to_date(date_obj).month
+    if 7 <= month <= 9:
+        return 1
+    if 10 <= month <= 12:
+        return 2
+    if 1 <= month <= 3:
+        return 3
+    return 4
+
+
+def quarter_label(date_obj):
+    """Return the quarter label containing ``date_obj``, e.g. ``FY2026-27-Q1``."""
+    date_obj = to_date(date_obj)
+    return f"{fy_label(date_obj)}-Q{quarter_index(date_obj)}"
+
+
+def quarter_bounds(label):
+    """Return ``(start_date, end_date)`` for a quarter label like ``FY2025-26-Q3``."""
+    fy = label[:9]  # "FY2025-26"
+    index = int(str(label).strip()[-1])
+    start_year = int(fy[2:6])
+    month, year_offset = _QUARTER_OFFSETS[index]
+    year = start_year + year_offset
+    start = dt.date(year, month, 1)
+    # Last day of the 3-month block.
+    if month == 1:
+        end = dt.date(year, 3, 31)
+    elif month == 4:
+        end = dt.date(year, 6, 30)
+    elif month == 7:
+        end = dt.date(year, 9, 30)
+    else:
+        end = dt.date(year, 12, 31)
+    return start, end
+
+
+def quarter_days(label):
+    start, end = quarter_bounds(label)
+    return (end - start).days + 1
+
+
+def previous_fy_label(today=None):
+    """The FY before the one containing ``today`` (defaults to today)."""
+    today = to_date(today) or dt.date.today()
+    return fy_label(fy_start_date(today) - dt.timedelta(days=1))
+
+
+def current_fy_label(today=None):
+    today = to_date(today) or dt.date.today()
+    return fy_label(today)
+
+
+def current_quarter_label(today=None):
+    today = to_date(today) or dt.date.today()
+    return quarter_label(today)
+
+
+def previous_quarter_label(today=None):
+    """The quarter before the one containing ``today`` (defaults to today)."""
+    today = to_date(today) or dt.date.today()
+    start, _end = quarter_bounds(quarter_label(today))
+    return quarter_label(start - dt.timedelta(days=1))
+
+
+def period_bounds(period_type, value):
+    """Resolve ``(start, end)`` for a period type (``year``/``quarter``)."""
+    if period_type == "quarter":
+        return quarter_bounds(value)
+    return fy_bounds(value)
+
+
 def days_held_in_fy(start: dt.date, end: dt.date, label: str):
     """Number of days in FY ``label`` between ``start`` and ``end`` inclusive."""
     fy_start, fy_end = fy_bounds(label)
