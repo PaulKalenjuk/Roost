@@ -627,7 +627,9 @@ def _resolve_period(request):
     quarter (BAS is filed after the quarter closes).
     """
     period_type = (request.query_params.get("period") or "year").lower()
-    if period_type == "quarter":
+    if period_type == "month":
+        value = request.query_params.get("month") or fiscal.previous_month_label()
+    elif period_type == "quarter":
         value = request.query_params.get("quarter") or fiscal.previous_quarter_label()
     else:
         period_type = "year"
@@ -652,8 +654,10 @@ def fy_report(request):
         "period_value": value,
         "fy_options": _fy_options(),
         "quarter_options": _quarter_options(),
+        "month_options": _month_options(),
         "default_fy": fiscal.previous_fy_label(),
         "default_quarter": fiscal.previous_quarter_label(),
+        "default_month": fiscal.previous_month_label(),
     }
     if include_owners:
         payload["owners"] = owners
@@ -728,6 +732,18 @@ def _fy_options():
     today = dt.date.today()
     this_year = today.year if today.month >= 7 else today.year - 1
     return [f"FY{y}-{str(y + 1)[2:]}" for y in range(this_year, this_year - 6, -1)]
+
+
+def _month_options():
+    """The last twelve months (newest first) for the reporting dropdown."""
+    today = dt.date.today()
+    options = []
+    label = fiscal.month_label(today)
+    for _ in range(12):
+        options.append(label)
+        start, _end = fiscal.month_bounds(label)
+        label = fiscal.month_label(start - dt.timedelta(days=1))
+    return options
 
 
 def _quarter_options():

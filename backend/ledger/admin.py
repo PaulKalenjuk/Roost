@@ -75,7 +75,8 @@ class PropertyAdmin(admin.ModelAdmin):
 
 @admin.register(Owner)
 class OwnerAdmin(admin.ModelAdmin):
-    list_display = ("name", "email")
+    list_display = ("name", "email", "bas_frequency")
+    list_filter = ("bas_frequency",)
     search_fields = ("name", "email")
 
 

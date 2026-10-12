@@ -10,6 +10,7 @@ import Expenses from './pages/Expenses'
 import Receipts from './pages/Receipts'
 import Assets from './pages/Assets'
 import Reporting from './pages/Reporting'
+import Owners from './pages/Owners'
 import Backups from './pages/Backups'
 
 interface Me {
@@ -24,6 +25,7 @@ const NAV = [
   { to: '/income', label: 'Income' },
   { to: '/expenses', label: 'Expenses' },
   { to: '/assets', label: 'Depreciating assets' },
+  { to: '/owners', label: 'Owners' },
   { to: '/reporting', label: 'Reporting' },
   { to: '/backups', label: 'Backups' },
   { to: '/setup', label: 'Property setup' },
@@ -146,6 +148,7 @@ export default function App() {
             <Route path="/receipts" element={<Navigate to="/" replace />} />
             <Route path="/setup" element={<PropertySetup />} />
             <Route path="/assets" element={<Assets />} />
+            <Route path="/owners" element={<Owners />} />
             <Route path="/reporting" element={<Reporting />} />
             <Route path="/backups" element={<Backups />} />
           </Routes>

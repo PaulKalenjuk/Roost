@@ -193,8 +193,26 @@ class Listing(TimestampedModel):
 class Owner(TimestampedModel):
     """A person with an ownership interest in one or more properties."""
 
+    BAS_MONTHLY = "monthly"
+    BAS_QUARTERLY = "quarterly"
+    BAS_YEARLY = "yearly"
+    BAS_FREQUENCY_CHOICES = [
+        (BAS_MONTHLY, "Monthly"),
+        (BAS_QUARTERLY, "Quarterly"),
+        (BAS_YEARLY, "Yearly"),
+    ]
+
     name = models.CharField(max_length=200)
     email = models.EmailField(blank=True)
+    bas_frequency = models.CharField(
+        max_length=20,
+        choices=BAS_FREQUENCY_CHOICES,
+        default=BAS_YEARLY,
+        help_text=(
+            "How often this owner lodges a BAS. Defaults the reporting period for "
+            "their reports (monthly / quarterly / yearly)."
+        ),
+    )
     notes = models.TextField(blank=True)
 
     class Meta:

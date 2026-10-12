@@ -20,9 +20,12 @@ config.
 - **Depreciating assets** — asset register with prime-cost / diminishing-value
   schedules, effective life and business-use %, plus any number of photos of
   each asset.
-- **Owners** — any number of owners, each with a share that must total 100%.
-- **Reporting** — per financial year (AU FY, 1 Jul – 30 Jun) *and per owner*,
-  breaking the calculation down.
+- **Owners** — any number of owners, each with a share that must total 100%,
+  plus a per-owner **BAS frequency** (monthly / quarterly / yearly) that defaults
+  the reporting period.
+- **Reporting** — by **month**, **quarter** (BAS periods) or **financial year**
+  (AU FY, 1 Jul – 30 Jun) *and per owner*, breaking the calculation down. The
+  period defaults to the selected owner's BAS frequency.
 - **Dashboard** — a single page of everything still to enter: utility types and
   income sources with coverage gaps, each with its timeline bar; click a gap to
   jump to the right form with the period prefilled.
@@ -82,11 +85,12 @@ item doesn't nag about October; the same applies to utility bills.
 
 ## Reporting
 
-Reports run per **financial year** (1 July – 30 June) or per **quarter** (BAS
-periods: Jul–Sep, Oct–Dec, Jan–Mar, Apr–Jun). The period is prorated by days, so
-a yearly figure still appears (proportionally) in a quarterly report and vice
-versa. When no period is chosen the report defaults to the **previous** financial
-year, or the **previous** quarter for a quarterly report.
+Reports run per **month**, per **quarter** (BAS periods: Jul–Sep, Oct–Dec,
+Jan–Mar, Apr–Jun) or per **financial year** (1 July – 30 June). The period is
+prorated by days, so a yearly figure still appears (proportionally) in a
+quarterly or monthly report and vice versa. When no period is chosen the report
+defaults to the **previous** month / quarter / financial year, and the period
+type follows the selected **owner's BAS frequency**.
 
 ```bash
 # property + FY (use 'current' / 'previous' for today's / last year); --owners adds the split
@@ -156,11 +160,12 @@ sections:
 | --- | --- |
 | **Dashboard** (`/dashboard`) | everything still to enter — utility types and income sources with timeline gaps, each with its coverage bar. Click a red block (or the period row) to jump straight to the bill / figure form, prefilled with that period |
 | **Property setup** | dwelling, floor areas / let %, GST flag, depreciation-method default (ATO link), owners + shares, listings, property image (printed top-right on the FY PDF) |
+| **Owners** | each owner's name/email and their **BAS frequency** (monthly/quarterly/yearly), which drives the reporting default |
 | **Income** | income **sources** (name, owner, frequency, coverage start) with a per-period **coverage** view of what still needs entering; income figures; import the Airbnb earnings **PDF** (monthly totals, overwrites, **original PDF kept**), import history, nights booked + reservations |
 | **Expenses** | two tabs — **Ad hoc** (with receipt upload, vendor keyword search, date-range and category filters) and **Utilities** |
 | **Receipts** | capture a receipt photo, **highlight** the lines on it, save to *unallocated*, then **Process with AI** (sums the highlighted lines + suggests a category) and file it as an expense |
 | **Depreciating assets** | asset register + built schedules, receipt upload, multiple asset photos, rebuild schedules |
-| **Reporting** | per-FY **or per-quarter** report with the maths shown, a GST (BAS) summary, optional per-owner split. Defaults to the **previous** FY / the **previous** quarter |
+| **Reporting** | **monthly**, **quarterly** or **yearly** report with the maths shown, a GST (BAS) summary, optional per-owner split. Defaults to the previous period; the period type follows the selected owner's BAS frequency |
 | **Backups** | log, local + Drive restore points, run now, Google Drive account |
 
 It works on a phone as well as a desktop: below **880px** the left menu collapses

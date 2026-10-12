@@ -1,4 +1,5 @@
 """Australian financial-year helpers (1 July – 30 June)."""
+import calendar
 import datetime as dt
 
 _STR_FORMATS = ("%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d")
@@ -126,8 +127,30 @@ def previous_quarter_label(today=None):
     return quarter_label(start - dt.timedelta(days=1))
 
 
+def month_label(date_obj):
+    """Return the month label containing ``date_obj``, e.g. ``2026-10``."""
+    date_obj = to_date(date_obj)
+    return f"{date_obj.year:04d}-{date_obj.month:02d}"
+
+
+def month_bounds(label):
+    """Return ``(start_date, end_date)`` for a month label like ``2026-10``."""
+    year, month = int(str(label)[:4]), int(str(label)[5:7])
+    last = calendar.monthrange(year, month)[1]
+    return dt.date(year, month, 1), dt.date(year, month, last)
+
+
+def previous_month_label(today=None):
+    """The month before the one containing ``today`` (defaults to today)."""
+    today = to_date(today) or dt.date.today()
+    first = today.replace(day=1)
+    return month_label(first - dt.timedelta(days=1))
+
+
 def period_bounds(period_type, value):
-    """Resolve ``(start, end)`` for a period type (``year``/``quarter``)."""
+    """Resolve ``(start, end)`` for a period type (``year``/``quarter``/``month``)."""
+    if period_type == "month":
+        return month_bounds(value)
     if period_type == "quarter":
         return quarter_bounds(value)
     return fy_bounds(value)

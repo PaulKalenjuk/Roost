@@ -378,8 +378,19 @@ def quarter_report(property_obj, label, recompute_depreciation=False):
     )
 
 
+def month_report(property_obj, label, recompute_depreciation=False):
+    """Full report for a calendar month (label like ``2026-10``)."""
+    start, end = fiscal.month_bounds(label)
+    return period_report(
+        property_obj, start, end, label=label, fy_label=fiscal.fy_label(start),
+        period_type="month", recompute_depreciation=recompute_depreciation,
+    )
+
+
 def report_for(property_obj, period_type, value, recompute_depreciation=False):
-    """Dispatch to the year/quarter report by ``period_type``."""
+    """Dispatch to the month/quarter/year report by ``period_type``."""
+    if period_type == "month":
+        return month_report(property_obj, value, recompute_depreciation)
     if period_type == "quarter":
         return quarter_report(property_obj, value, recompute_depreciation)
     return fy_report(property_obj, value, recompute_depreciation)
@@ -435,10 +446,16 @@ def owner_reports(property_obj, label, recompute_depreciation=False, period_type
     depreciation are always split by ownership share.
     """
     start, end = fiscal.period_bounds(period_type, label)
+    if period_type == "quarter":
+        fy_label = label[:9]
+    elif period_type == "month":
+        fy_label = fiscal.fy_label(start)
+    else:
+        fy_label = label
     report = period_report(
         property_obj, start, end,
         label=label,
-        fy_label=(label[:9] if period_type == "quarter" else label),
+        fy_label=fy_label,
         period_type=period_type,
         recompute_depreciation=recompute_depreciation,
     )

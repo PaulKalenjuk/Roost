@@ -79,7 +79,13 @@ export interface Ownership {
   share_pct: string
 }
 
-export interface Owner { id: number; name: string; email: string; notes: string }
+export interface Owner {
+  id: number
+  name: string
+  email: string
+  bas_frequency: 'monthly' | 'quarterly' | 'yearly'
+  notes: string
+}
 
 export interface Listing {
   id: number

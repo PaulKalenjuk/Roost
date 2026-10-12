@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, money, pct } from '../api'
+import { api, fetchList, money, pct, type Owner, type Ownership } from '../api'
 import { Alert, Loading } from '../components'
 import { useProperties } from '../store'
 
@@ -26,7 +26,7 @@ interface Report {
   property: string
   financial_year: string
   period_label: string
-  period_type: 'year' | 'quarter'
+  period_type: 'year' | 'quarter' | 'month'
   period: [string, string]
   let_share: Num
   gst_registered: boolean
@@ -70,21 +70,35 @@ interface OwnerView {
 interface ReportResponse {
   report: Report
   owners?: OwnerView[]
-  period_type: 'year' | 'quarter'
+  period_type: 'year' | 'quarter' | 'month'
   period_value: string
   fy_options: string[]
   quarter_options: string[]
+  month_options: string[]
   default_fy: string
   default_quarter: string
+  default_month: string
+}
+
+type PeriodType = 'year' | 'quarter' | 'month'
+
+interface OwnerOption {
+  id: number
+  name: string
+  bas_frequency: PeriodType
 }
 
 export default function Reporting() {
   const { selected } = useProperties()
-  const [periodType, setPeriodType] = useState<'year' | 'quarter'>('year')
+  const [periodType, setPeriodType] = useState<PeriodType | ''>('')
   const [fy, setFy] = useState('')
   const [quarter, setQuarter] = useState('')
+  const [month, setMonth] = useState('')
   const [fyOptions, setFyOptions] = useState<string[]>([])
   const [quarterOptions, setQuarterOptions] = useState<string[]>([])
+  const [monthOptions, setMonthOptions] = useState<string[]>([])
+  const [ownerOptions, setOwnerOptions] = useState<OwnerOption[]>([])
+  const [ownerId, setOwnerId] = useState<number | null>(null)
   const [includeOwners, setIncludeOwners] = useState(true)
   const [recompute, setRecompute] = useState(false)
   const [working, setWorking] = useState(true)
@@ -92,8 +106,47 @@ export default function Reporting() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  const clearPeriodValue = () => {
+    setFy('')
+    setQuarter('')
+    setMonth('')
+  }
+
+  // When the property changes, load its owners and default the reporting period
+  // to the first owner's BAS frequency (monthly / quarterly / yearly).
   useEffect(() => {
     if (!selected) {
+      setOwnerOptions([])
+      setOwnerId(null)
+      setPeriodType('')
+      return
+    }
+    let cancelled = false
+    Promise.all([
+      fetchList<Ownership>(`/api/ownerships/?property=${selected.id}`),
+      fetchList<Owner>('/api/owners/'),
+    ]).then(([ownerships, owners]) => {
+      if (cancelled) return
+      const byId = new Map(owners.map((o) => [o.id, o]))
+      const list: OwnerOption[] = ownerships.map((w) => ({
+        id: w.owner,
+        name: w.owner_name,
+        bas_frequency: (byId.get(w.owner)?.bas_frequency ?? 'yearly') as PeriodType,
+      }))
+      setOwnerOptions(list)
+      const first = list[0]
+      setOwnerId(first?.id ?? null)
+      setPeriodType(first?.bas_frequency ?? 'year')
+      clearPeriodValue()
+    })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id])
+
+  useEffect(() => {
+    if (!selected || !periodType) {
       setData(null)
       return
     }
@@ -105,6 +158,7 @@ export default function Reporting() {
         const params = new URLSearchParams({ property: String(selected.id), period: periodType })
         if (periodType === 'year' && fy) params.set('fy', fy)
         if (periodType === 'quarter' && quarter) params.set('quarter', quarter)
+        if (periodType === 'month' && month) params.set('month', month)
         if (includeOwners) params.set('owners', '1')
         if (recompute) params.set('recompute', '1')
         if (working) params.set('working', '1')
@@ -113,9 +167,11 @@ export default function Reporting() {
         setData(result)
         setFyOptions(result.fy_options)
         setQuarterOptions(result.quarter_options ?? [])
+        setMonthOptions(result.month_options ?? [])
         // Adopt the period the server resolved (its default when we sent none).
         if (periodType === 'year' && !fy) setFy(result.period_value)
         if (periodType === 'quarter' && !quarter) setQuarter(result.period_value)
+        if (periodType === 'month' && !month) setMonth(result.period_value)
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Report failed')
       } finally {
@@ -127,12 +183,22 @@ export default function Reporting() {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.id, periodType, fy, quarter])
+  }, [selected?.id, periodType, fy, quarter, month])
+
+  const chooseOwner = (id: number | null) => {
+    setOwnerId(id)
+    const o = ownerOptions.find((x) => x.id === id)
+    if (o) {
+      setPeriodType(o.bas_frequency)
+      clearPeriodValue()
+    }
+  }
 
   const periodQuery = () => {
-    const params = new URLSearchParams({ property: String(selected?.id ?? ''), period: periodType })
+    const params = new URLSearchParams({ property: String(selected?.id ?? ''), period: periodType || 'year' })
     if (periodType === 'year' && fy) params.set('fy', fy)
     if (periodType === 'quarter' && quarter) params.set('quarter', quarter)
+    if (periodType === 'month' && month) params.set('month', month)
     return params
   }
 
@@ -154,42 +220,69 @@ export default function Reporting() {
   }
 
   const report = data?.report
-  const options = periodType === 'quarter' ? quarterOptions : fyOptions
+  const options =
+    periodType === 'month' ? monthOptions : periodType === 'quarter' ? quarterOptions : fyOptions
+  const periodValue = periodType === 'month' ? month : periodType === 'quarter' ? quarter : fy
+  const selectedOwner = ownerOptions.find((o) => o.id === ownerId)
 
   return (
     <>
       <h1>Reporting</h1>
       <p className="sub">
-        Report by financial year (1 July – 30 June) or by quarter (BAS periods:
-        Jul–Sep, Oct–Dec, Jan–Mar, Apr–Jun), with the maths shown and an optional
-        per-owner split.
+        Report by month, quarter (BAS periods: Jul–Sep, Oct–Dec, Jan–Mar, Apr–Jun) or
+        financial year (1 July – 30 June), with the maths shown and an optional
+        per-owner split. The period defaults to the selected owner's BAS frequency.
       </p>
 
       {!selected ? <Alert kind="info">Create a property first.</Alert> : null}
 
       <div className="panel">
         <div className="row">
+          {ownerOptions.length ? (
+            <div>
+              <label>Owner (BAS default)</label>
+              <select
+                value={ownerId ?? ''}
+                onChange={(e) => chooseOwner(e.target.value ? Number(e.target.value) : null)}
+              >
+                {ownerOptions.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <div>
             <label>Report by</label>
             <select
               value={periodType}
               onChange={(e) => {
-                setPeriodType(e.target.value as 'year' | 'quarter')
-                // Clear the value so the server's sensible default applies.
-                setFy('')
-                setQuarter('')
+                setPeriodType(e.target.value as PeriodType)
+                clearPeriodValue()
               }}
             >
-              <option value="year">Financial year</option>
+              <option value="month">Monthly</option>
               <option value="quarter">Quarter</option>
+              <option value="year">Financial year</option>
             </select>
           </div>
           <div>
-            <label>{periodType === 'quarter' ? 'Quarter' : 'Financial year'}</label>
+            <label>
+              {periodType === 'month'
+                ? 'Month'
+                : periodType === 'quarter'
+                  ? 'Quarter'
+                  : 'Financial year'}
+            </label>
             <select
-              value={periodType === 'quarter' ? quarter : fy}
+              value={periodValue}
               onChange={(e) =>
-                periodType === 'quarter' ? setQuarter(e.target.value) : setFy(e.target.value)
+                periodType === 'month'
+                  ? setMonth(e.target.value)
+                  : periodType === 'quarter'
+                    ? setQuarter(e.target.value)
+                    : setFy(e.target.value)
               }
             >
               {(options.length ? options : ['']).map((o) => (
@@ -228,8 +321,9 @@ export default function Reporting() {
           </button>
         </div>
         <div className="hint">
-          Defaults: the previous quarter when reporting quarterly, the previous
-          financial year when reporting yearly.
+          {selectedOwner
+            ? `${selectedOwner.name}'s BAS frequency is ${selectedOwner.bas_frequency} — the period defaults to the previous one.`
+            : 'Defaults: previous month (monthly), previous quarter (quarterly), previous financial year (yearly).'}
         </div>
       </div>
 

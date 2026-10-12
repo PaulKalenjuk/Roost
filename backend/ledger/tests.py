@@ -2166,6 +2166,63 @@ class ReportPeriodApiTests(BaseLedgerTestCase):
         ).json()
         self.assertEqual(body["report"]["period"], ["2026-01-01", "2026-03-31"])
 
+    def test_month_defaults_to_previous_month(self):
+        body = self.api.get(
+            f"/api/reports/fy/?property={self.prop.id}&period=month"
+        ).json()
+        self.assertEqual(body["period_type"], "month")
+        self.assertEqual(body["period_value"], fiscal.previous_month_label())
+        self.assertIn(body["period_value"], body["month_options"])
+        start, end = fiscal.month_bounds(body["period_value"])
+        self.assertEqual(body["report"]["period"], [start.isoformat(), end.isoformat()])
+
+    def test_explicit_month_value(self):
+        body = self.api.get(
+            f"/api/reports/fy/?property={self.prop.id}&period=month&month=2026-03"
+        ).json()
+        self.assertEqual(body["report"]["period"], ["2026-03-01", "2026-03-31"])
+
+
+class OwnerBasFrequencyTests(BaseLedgerTestCase):
+    """Each owner carries a BAS frequency that drives the reporting default."""
+
+    def setUp(self):
+        super().setUp()
+        user = User.objects.create_user("owners", "o@example.com", "unused-pw")
+        self.api = APIClient()
+        self.api.force_login(user)
+
+    def test_bas_frequency_defaults_to_yearly(self):
+        response = self.api.post("/api/owners/", {"name": "Bob"}, format="json")
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["bas_frequency"], "yearly")
+
+    def test_bas_frequency_round_trips(self):
+        created = self.api.post(
+            "/api/owners/", {"name": "Alice", "bas_frequency": "monthly"}, format="json"
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        self.assertEqual(created.json()["bas_frequency"], "monthly")
+        owner_id = created.json()["id"]
+        patched = self.api.patch(
+            f"/api/owners/{owner_id}/", {"bas_frequency": "quarterly"}, format="json"
+        )
+        self.assertEqual(patched.status_code, 200, patched.content)
+        self.assertEqual(Owner.objects.get(pk=owner_id).bas_frequency, "quarterly")
+
+    def test_month_report_sums_a_month(self):
+        cat = Category.objects.create(name="Cleaning", kind=Category.KIND_OPERATING)
+        Expense.objects.create(
+            property=self.prop, category=cat, date="2026-03-05", amount=Decimal("80.00")
+        )
+        Expense.objects.create(
+            property=self.prop, category=cat, date="2026-04-05", amount=Decimal("999.00")
+        )
+        report = reports.month_report(self.prop, "2026-03")
+        self.assertEqual(report["period_type"], "month")
+        self.assertEqual(report["period"], (dt.date(2026, 3, 1), dt.date(2026, 3, 31)))
+        self.assertEqual(report["expenses"]["total_amount"], Decimal("80.00"))
+
 
 class IncomeOwnerAttributionTests(BaseLedgerTestCase):
     """Income assigned to an owner goes to them in full; the rest is shared."""

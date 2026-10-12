@@ -54,7 +54,7 @@ from .models import (
 class OwnerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Owner
-        fields = ["id", "name", "email", "notes"]
+        fields = ["id", "name", "email", "bas_frequency", "notes"]
 
 
 class PropertyOwnershipSerializer(BaseSerializer):
