@@ -77,6 +77,7 @@ def coverage_for(utility_type, today=None):
         "frequency_label": utility_type.get_frequency_display(),
         "bills": len(bills),
         "bills_missing_period": 0,
+        "bills_invalid_period": 0,
         "overlaps": 0,
         "attachment_count": sum(1 for b in bills if b.attachment),
         "computable": False,
@@ -109,10 +110,13 @@ def coverage_for(utility_type, today=None):
 
     intervals = []
     for bill in bills:
-        if bill.period_start and bill.period_end and bill.period_start <= bill.period_end:
-            intervals.append((bill.period_start, bill.period_end, bill.id))
-        else:
+        if not (bill.period_start and bill.period_end):
             result["bills_missing_period"] += 1
+        elif bill.period_start > bill.period_end:
+            # e.g. the dates were transposed — it can't cover anything.
+            result["bills_invalid_period"] += 1
+        else:
+            intervals.append((bill.period_start, bill.period_end, bill.id))
 
     end = today
     if intervals:
@@ -209,7 +213,11 @@ def income_coverage(income_type, today=None):
     today = today or dt.date.today()
     prop = income_type.property
     entries = [e for e in income_type.entries.all() if e.period_start and e.period_end]
-    undated = income_type.entries.filter(period_start__isnull=True).count()
+    # Figures with a missing or half-filled period can't be placed on the timeline.
+    undated = sum(
+        1 for e in income_type.entries.all()
+        if not (e.period_start and e.period_end)
+    )
     frequency = income_type.frequency
 
     result = {

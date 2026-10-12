@@ -391,6 +391,7 @@ export interface Coverage {
   frequency_label: string
   bills: number
   bills_missing_period: number
+  bills_invalid_period: number
   overlaps: number
   attachment_count: number
   computable: boolean

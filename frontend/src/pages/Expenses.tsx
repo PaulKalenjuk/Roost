@@ -1251,9 +1251,10 @@ function Utilities({
                     {focused.gaps.length} gap{focused.gaps.length > 1 ? 's' : ''} · {focused.gap_days} days
                   </span>
                 ) : null}
-                {focused.bills_missing_period ? (
+                {focused.bills_missing_period + focused.bills_invalid_period ? (
                   <span className="badge warn">
-                    {focused.bills_missing_period} bill(s) without a period
+                    {focused.bills_missing_period + focused.bills_invalid_period} bill(s) without a
+                    valid period
                   </span>
                 ) : null}
                 {focused.overlaps ? (

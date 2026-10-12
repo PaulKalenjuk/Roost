@@ -1706,7 +1706,25 @@ class UtilityCoverageTests(BaseLedgerTestCase):
         UtilityBill.objects.create(utility_type=self.ut, bill_date=dt.date(2025, 8, 1), amount="50.00")
         result = coverage_for(self.ut, today=dt.date(2025, 12, 31))
         self.assertEqual(result["bills_missing_period"], 1)
+        self.assertEqual(result["bills_invalid_period"], 0)
         self.assertEqual(result["coverage_pct"], 0.0)
+
+    def test_inverted_period_is_flagged_not_a_gap(self):
+        """A bill whose end precedes its start can't cover anything — it's a data
+        problem, not a coverage gap, so a fully-covered utility never shows up
+        on the dashboard as 'needing a bill'."""
+        self._bill("2025-07-01", "2025-09-30")
+        UtilityBill.objects.create(
+            utility_type=self.ut,
+            bill_date=dt.date(2026, 3, 6),
+            period_start=dt.date(2026, 3, 6),
+            period_end=dt.date(2026, 3, 5),
+            amount="50.00",
+        )
+        result = coverage_for(self.ut, today=dt.date(2025, 10, 1))
+        self.assertEqual(result["bills_invalid_period"], 1)
+        self.assertEqual(result["bills_missing_period"], 0)
+        self.assertEqual(result["gaps"], [])
 
     def test_not_computable_without_a_start_date(self):
         self.prop.purchase_date = None
@@ -1944,6 +1962,17 @@ class IncomeTypeTests(BaseLedgerTestCase):
         self.assertEqual(result["current_period"]["start"], "2026-01-01")
         # One covered quarter then one gap => a two-segment bar.
         self.assertEqual([s["kind"] for s in result["segments"]], ["covered", "gap"])
+
+    def test_half_period_entry_is_counted_separately(self):
+        # An entry missing its end date can't sit on the timeline — it's a data
+        # issue, not a coverage gap.
+        IncomeEntry.objects.create(
+            income_type=self.storage,
+            period_start=dt.date(2025, 7, 1),
+            amount=Decimal("10.00"),
+        )
+        result = income_coverage(self.storage, today=dt.date(2025, 10, 1))
+        self.assertEqual(result["entries_missing_period"], 1)
 
     def test_coverage_needs_a_start_date(self):
         prop = Property.objects.create(name="No dates")

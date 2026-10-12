@@ -37,11 +37,17 @@ export default function Dashboard() {
     }
   }, [selected?.id])
 
-  const utilitiesNeeding = utilityCov.filter(
-    (c) => c.computable && (c.gaps.length > 0 || c.bills_missing_period > 0),
+  // A coverage gap is a real missing bill/figure. A bill/entry with a missing or
+  // invalid period is a data-tidying job, not a coverage gap — keep them apart so
+  // a fully-covered item doesn't look like it still needs entering.
+  const billPeriodIssues = (c: Coverage) => c.bills_missing_period + c.bills_invalid_period
+  const utilitiesNeeding = utilityCov.filter((c) => c.computable && c.gaps.length > 0)
+  const utilitiesToTidy = utilityCov.filter(
+    (c) => c.computable && c.gaps.length === 0 && billPeriodIssues(c) > 0,
   )
-  const incomesNeeding = incomeCov.filter(
-    (c) => c.computable && (c.missing_periods > 0 || c.entries_missing_period > 0),
+  const incomesNeeding = incomeCov.filter((c) => c.computable && c.missing_periods > 0)
+  const incomesToTidy = incomeCov.filter(
+    (c) => c.computable && c.missing_periods === 0 && c.entries_missing_period > 0,
   )
 
   const openUtility = (id: number, gap?: CoverageSegment) => {
@@ -62,7 +68,11 @@ export default function Dashboard() {
   }
 
   const nothingMissing =
-    !loading && utilitiesNeeding.length === 0 && incomesNeeding.length === 0 &&
+    !loading &&
+    utilitiesNeeding.length === 0 &&
+    incomesNeeding.length === 0 &&
+    utilitiesToTidy.length === 0 &&
+    incomesToTidy.length === 0 &&
     (utilityCov.length > 0 || incomeCov.length > 0)
 
   return (
@@ -98,9 +108,6 @@ export default function Dashboard() {
                   <span className={`badge ${c.gaps.length ? 'err' : 'ok'}`}>
                     {c.gaps.length} gap{c.gaps.length === 1 ? '' : 's'} · {c.gap_days} days
                   </span>
-                  {c.bills_missing_period ? (
-                    <span className="badge warn">{c.bills_missing_period} bill(s) without a period</span>
-                  ) : null}
                 </div>
                 <CoverageBar coverage={c} onGapClick={(gap) => openUtility(c.utility_type, gap)} />
                 {c.gaps.length ? (
@@ -143,16 +150,6 @@ export default function Dashboard() {
                     </table>
                   </div>
                 ) : null}
-                {c.bills_missing_period ? (
-                  <button
-                    type="button"
-                    className="ghost small"
-                    style={{ marginTop: 8 }}
-                    onClick={() => openUtility(c.utility_type)}
-                  >
-                    Fix bills without a period →
-                  </button>
-                ) : null}
               </div>
             ))}
             {utilityCov.length === 0 ? (
@@ -182,11 +179,6 @@ export default function Dashboard() {
                   <span className={`badge ${c.missing_periods ? 'err' : 'ok'}`}>
                     {c.missing_periods} to enter
                   </span>
-                  {c.entries_missing_period ? (
-                    <span className="badge warn">
-                      {c.entries_missing_period} figure(s) without a period
-                    </span>
-                  ) : null}
                 </div>
                 <CoverageBar coverage={c} onGapClick={(gap) => openIncome(c.income_type, gap)} />
                 {c.current_period ? (
@@ -239,6 +231,64 @@ export default function Dashboard() {
               <p className="muted">No income sources yet — add them under Income.</p>
             ) : null}
           </div>
+
+          {utilitiesToTidy.length || incomesToTidy.length ? (
+            <div className="panel">
+              <h2>Period details to tidy</h2>
+              <p className="sub">
+                These have full coverage, but one or more bills/figures have a missing
+                or invalid period, so they can't be placed on the timeline.
+              </p>
+              <div className="tablewrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th>Kind</th>
+                      <th className="num">Without a valid period</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {utilitiesToTidy.map((c) => (
+                      <tr key={`u-${c.utility_type}`}>
+                        <td>{c.name}</td>
+                        <td>Utility</td>
+                        <td className="num">
+                          {c.bills_missing_period + c.bills_invalid_period}
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="ghost small"
+                            onClick={() => openUtility(c.utility_type)}
+                          >
+                            Open ↗
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {incomesToTidy.map((c) => (
+                      <tr key={`i-${c.income_type}`}>
+                        <td>{c.name}</td>
+                        <td>Income</td>
+                        <td className="num">{c.entries_missing_period}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="ghost small"
+                            onClick={() => openIncome(c.income_type)}
+                          >
+                            Open ↗
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
 
           {nothingMissing ? (
             <Alert kind="ok">All caught up — no missing utility bills or income figures. 🎉</Alert>
