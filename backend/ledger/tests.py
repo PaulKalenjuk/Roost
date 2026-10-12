@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
@@ -1710,22 +1711,18 @@ class UtilityCoverageTests(BaseLedgerTestCase):
         self.assertEqual(result["bills_invalid_period"], 0)
         self.assertEqual(result["coverage_pct"], 0.0)
 
-    def test_inverted_period_is_flagged_not_a_gap(self):
-        """A bill whose end precedes its start can't cover anything — it's a data
-        problem, not a coverage gap, so a fully-covered utility never shows up
-        on the dashboard as 'needing a bill'."""
-        self._bill("2025-07-01", "2025-09-30")
-        UtilityBill.objects.create(
-            utility_type=self.ut,
-            bill_date=dt.date(2026, 3, 6),
-            period_start=dt.date(2026, 3, 6),
-            period_end=dt.date(2026, 3, 5),
-            amount="50.00",
-        )
-        result = coverage_for(self.ut, today=dt.date(2025, 10, 1))
-        self.assertEqual(result["bills_invalid_period"], 1)
-        self.assertEqual(result["bills_missing_period"], 0)
-        self.assertEqual(result["gaps"], [])
+    def test_inverted_period_is_rejected_by_the_db(self):
+        """A bill whose end precedes its start can't cover anything. The DB check
+        constraint stops it being written at all, so coverage can never be
+        thrown off by a transposed period."""
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            UtilityBill.objects.create(
+                utility_type=self.ut,
+                bill_date=dt.date(2026, 3, 6),
+                period_start=dt.date(2026, 3, 6),
+                period_end=dt.date(2026, 3, 5),
+                amount="50.00",
+            )
 
     def test_not_computable_without_a_start_date(self):
         self.prop.purchase_date = None

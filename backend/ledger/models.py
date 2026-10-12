@@ -14,7 +14,7 @@ from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
-from django.db.models import Sum
+from django.db.models import F, Sum
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
@@ -452,7 +452,15 @@ class EarningsSummary(TimestampedModel):
             models.UniqueConstraint(
                 fields=["listing", "period_start", "period_end"],
                 name="uniq_earnings_summary_period",
-            )
+            ),
+            models.CheckConstraint(
+                name="earningssummary_period_order",
+                condition=(
+                    models.Q(period_start__isnull=True)
+                    | models.Q(period_end__isnull=True)
+                    | models.Q(period_start__lte=F("period_end"))
+                ),
+            ),
         ]
 
     def __str__(self):
@@ -586,7 +594,15 @@ class IncomeEntry(TimestampedModel):
             models.UniqueConstraint(
                 fields=["income_type", "period_start", "period_end"],
                 name="uniq_income_entry_period",
-            )
+            ),
+            models.CheckConstraint(
+                name="incomeentry_period_order",
+                condition=(
+                    models.Q(period_start__isnull=True)
+                    | models.Q(period_end__isnull=True)
+                    | models.Q(period_start__lte=F("period_end"))
+                ),
+            ),
         ]
 
     @property
@@ -1166,6 +1182,16 @@ class UtilityBill(TimestampedModel):
 
     class Meta:
         ordering = ["-bill_date", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                name="utilitybill_period_order",
+                condition=(
+                    models.Q(period_start__isnull=True)
+                    | models.Q(period_end__isnull=True)
+                    | models.Q(period_start__lte=F("period_end"))
+                ),
+            )
+        ]
 
     @property
     def claimable_amount(self):
