@@ -46,10 +46,20 @@ function bytes(n: number | null | undefined): string {
   return `${v.toFixed(i === 0 || v >= 10 ? 0 : 1)} ${units[i]}`
 }
 
+// Backups run on the host in UTC; the ISO carries it, so this renders in the
+// viewer's own timezone. Force en-AU so it reads dd/mm/yyyy (not M/D/YYYY) like
+// the rest of the app.
 function when(iso: string | null): string {
   if (!iso) return '—'
   const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString('en-AU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 export default function Backups() {
