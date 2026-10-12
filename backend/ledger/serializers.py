@@ -149,15 +149,23 @@ class IncomeTypeSerializer(BaseSerializer):
 class IncomeEntrySerializer(BaseSerializer):
     income_type_name = serializers.CharField(source="income_type.name", read_only=True)
     owner_name = serializers.CharField(source="income_type.owner.name", read_only=True)
+    attachment_url = serializers.SerializerMethodField()
 
     class Meta:
         model = IncomeEntry
         fields = [
             "id", "income_type", "income_type_name", "owner_name", "period_start",
             "period_end", "amount", "gross_amount", "gst_amount", "received",
-            "source", "external_id", "notes",
+            "attachment", "attachment_url", "source", "external_id", "notes",
         ]
         read_only_fields = ["source", "external_id"]
+        extra_kwargs = {"attachment": {"required": False, "allow_null": True}}
+
+    def get_attachment_url(self, obj):
+        request = self.context.get("request")
+        if obj.attachment and request:
+            return request.build_absolute_uri(obj.attachment.url)
+        return obj.attachment.url if obj.attachment else None
 
 
 class ReceiptSerializer(serializers.ModelSerializer):

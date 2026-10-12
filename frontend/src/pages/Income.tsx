@@ -80,6 +80,7 @@ function IncomeSources() {
     received: true,
     notes: '',
   })
+  const attachmentRef = useRef<HTMLInputElement>(null)
 
   const loadTypes = async () => {
     if (!selected) return
@@ -198,6 +199,7 @@ function IncomeSources() {
       received: true,
       notes: '',
     })
+    if (attachmentRef.current) attachmentRef.current.value = ''
   }
   const prefillPeriod = (start: string, end: string) => {
     setEditingEntryId(null)
@@ -211,6 +213,7 @@ function IncomeSources() {
       received: true,
       notes: '',
     })
+    if (attachmentRef.current) attachmentRef.current.value = ''
     setNotice(`Period prefilled (${start} → ${end}). Enter the amount, then save.`)
     entryFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
@@ -227,6 +230,7 @@ function IncomeSources() {
       received: e.received,
       notes: e.notes ?? '',
     })
+    if (attachmentRef.current) attachmentRef.current.value = ''
     setError('')
     setNotice(`Editing the ${e.income_type_name} figure for ${e.period_start ?? '?'}.`)
     entryFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -240,25 +244,23 @@ function IncomeSources() {
       return
     }
     setError('')
-    const payload = {
-      income_type: Number(entry.income_type),
-      period_start: entry.period_start || null,
-      period_end: entry.period_end || null,
-      amount: entry.amount || '0',
-      gross_amount: entry.gross_amount === '' ? null : entry.gross_amount,
-      gst_amount: entry.gst_amount || '0',
-      received: entry.received,
-      notes: entry.notes,
-    }
+    const body = new FormData()
+    body.append('income_type', entry.income_type)
+    body.append('period_start', entry.period_start)
+    body.append('period_end', entry.period_end)
+    body.append('amount', entry.amount || '0')
+    body.append('gross_amount', entry.gross_amount)
+    body.append('gst_amount', entry.gst_amount || '0')
+    body.append('received', String(entry.received))
+    body.append('notes', entry.notes)
+    const attachment = attachmentRef.current?.files?.[0]
+    if (attachment) body.append('attachment', attachment)
     try {
       if (editingEntryId) {
-        await api(`/api/income-entries/${editingEntryId}/`, {
-          method: 'PATCH',
-          body: JSON.stringify(payload),
-        })
+        await api(`/api/income-entries/${editingEntryId}/`, { method: 'PATCH', body })
         setNotice('Income figure updated.')
       } else {
-        await api('/api/income-entries/', { method: 'POST', body: JSON.stringify(payload) })
+        await api('/api/income-entries/', { method: 'POST', body })
         setNotice('Income figure saved.')
       }
       resetEntryForm()
@@ -299,6 +301,7 @@ function IncomeSources() {
   }
 
   const amountTotal = entries.reduce((s, e) => s + Number(e.amount), 0)
+  const editingEntry = entries.find((e) => e.id === editingEntryId)
 
   return (
     <>
@@ -585,6 +588,21 @@ function IncomeSources() {
             <input value={entry.notes} onChange={(e) => setEntry({ ...entry, notes: e.target.value })} />
           </Field>
         </div>
+        <div className="row" style={{ marginTop: 12 }}>
+          <div>
+            <label>Attachment (optional)</label>
+            <input type="file" ref={attachmentRef} />
+          </div>
+          {editingEntry?.attachment_url ? (
+            <div className="hint" style={{ alignSelf: 'flex-end' }}>
+              Current:{' '}
+              <a href={editingEntry.attachment_url} target="_blank" rel="noreferrer">
+                open
+              </a>{' '}
+              — choose a new file to replace it.
+            </div>
+          ) : null}
+        </div>
         <div style={{ height: 12 }} />
         <div className="row">
           <button disabled={!entry.income_type}>
@@ -610,6 +628,7 @@ function IncomeSources() {
                 <th className="num">GST</th>
                 <th>Received</th>
                 <th>Source</th>
+                <th>Attachment</th>
                 <th />
               </tr>
             </thead>
@@ -625,6 +644,15 @@ function IncomeSources() {
                   <td>{e.received ? 'Yes' : 'No'}</td>
                   <td>{e.source === 'airbnb_pdf' ? 'Airbnb import' : 'Manual'}</td>
                   <td>
+                    {e.attachment_url ? (
+                      <a href={e.attachment_url} target="_blank" rel="noreferrer">
+                        📎
+                      </a>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td>
                     <div className="row">
                       <button type="button" className="ghost small" onClick={() => startEditEntry(e)}>
                         Edit
@@ -638,7 +666,7 @@ function IncomeSources() {
               ))}
               {entries.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="muted">
+                  <td colSpan={8} className="muted">
                     No figures for this source yet.
                   </td>
                 </tr>
@@ -649,7 +677,7 @@ function IncomeSources() {
                 <tr>
                   <td>Total</td>
                   <td className="num">{money(amountTotal)}</td>
-                  <td colSpan={5} />
+                  <td colSpan={6} />
                 </tr>
               </tfoot>
             ) : null}

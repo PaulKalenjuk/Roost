@@ -1869,9 +1869,39 @@ class IncomeTypeTests(BaseLedgerTestCase):
             owner=self.alice,
             coverage_start=dt.date(2025, 7, 1),
         )
+        self.tmp = tempfile.mkdtemp()
+        override = override_settings(MEDIA_ROOT=self.tmp)
+        override.enable()
+        self.addCleanup(override.disable)
         user = User.objects.create_user("incomer", "i@example.com", "unused-pw")
         self.api = APIClient()
         self.api.force_login(user)
+
+    def test_attachment_upload_and_cleanup(self):
+        upload = SimpleUploadedFile("statement.pdf", b"%PDF-1.4 stmt", content_type="application/pdf")
+        response = self.api.post(
+            "/api/income-entries/",
+            {
+                "income_type": self.storage.id,
+                "period_start": "2025-07-01",
+                "period_end": "2025-09-30",
+                "amount": "300.00",
+                "attachment": upload,
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        body = response.json()
+        self.assertIn("/media/income/", body["attachment_url"])
+        entry = IncomeEntry.objects.get()
+        self.assertTrue(Path(self.tmp).joinpath(entry.attachment.name).exists())
+
+        # Clearing the attachment on edit removes the field but the file goes
+        # with the row when it is deleted.
+        stored = Path(self.tmp).joinpath(entry.attachment.name)
+        deleted = self.api.delete(f"/api/income-entries/{entry.id}/")
+        self.assertEqual(deleted.status_code, 204)
+        self.assertFalse(stored.exists(), "income attachment left on disk")
 
     def test_entry_computes_financial_year(self):
         entry = IncomeEntry.objects.create(

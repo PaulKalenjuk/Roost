@@ -207,7 +207,7 @@ class IncomeEntryInline(admin.TabularInline):
     model = IncomeEntry
     extra = 0
     fields = ("period_start", "period_end", "amount", "gross_amount",
-              "gst_amount", "received", "notes")
+              "gst_amount", "received", "attachment", "notes")
 
 
 @admin.register(IncomeType)

@@ -555,6 +555,12 @@ class IncomeEntry(TimestampedModel):
     )
     received = models.BooleanField(default=True)
 
+    attachment = models.FileField(
+        upload_to="income/%Y/%m/",
+        blank=True,
+        help_text="Optional supporting document (statement, remittance, invoice…).",
+    )
+
     source = models.CharField(max_length=30, default="manual")
     external_id = models.CharField(max_length=120, blank=True)
     notes = models.TextField(blank=True)
@@ -1210,3 +1216,10 @@ def _delete_capture_image(sender, instance, **kwargs):
     """Cascade-safe cleanup: an unallocated receipt's photo goes with it."""
     if instance.image:
         instance.image.delete(save=False)
+
+
+@receiver(post_delete, sender=IncomeEntry)
+def _delete_income_attachment(sender, instance, **kwargs):
+    """Cascade-safe cleanup: an income figure's attachment goes with it."""
+    if instance.attachment:
+        instance.attachment.delete(save=False)

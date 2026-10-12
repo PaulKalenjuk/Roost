@@ -429,6 +429,8 @@ export interface IncomeEntry {
   gross_amount: string | null
   gst_amount: string
   received: boolean
+  attachment: string | null
+  attachment_url: string | null
   source: string
   external_id: string
   notes: string

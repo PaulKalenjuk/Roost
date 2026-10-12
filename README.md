@@ -63,7 +63,8 @@ python manage.py import_airbnb_csv "/path/transactions.csv" --listing "My Listin
 Airbnb is one income source among many. Each source belongs to a property, has a
 **frequency** (monthly / quarterly / yearly), an optional **owner**, and a
 "track from" date. You enter one **income figure** per period (with an optional
-gross and the GST collected). The coverage view lists the periods between the
+gross, the GST collected, and an optional **attachment** — a statement,
+remittance or invoice kept with the figure). The coverage view lists the periods between the
 track-from date and today and flags the ones with no figure yet, so nothing is
 silently missed before a BAS or tax return.
 
