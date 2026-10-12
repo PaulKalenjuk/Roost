@@ -23,6 +23,9 @@ config.
 - **Owners** — any number of owners, each with a share that must total 100%.
 - **Reporting** — per financial year (AU FY, 1 Jul – 30 Jun) *and per owner*,
   breaking the calculation down.
+- **Dashboard** — a single page of everything still to enter: utility types and
+  income sources with coverage gaps, each with its timeline bar; click a gap to
+  jump to the right form with the period prefilled.
 
 ## Airbnb data — the important bit
 
@@ -151,6 +154,7 @@ sections:
 
 | Section | What it does |
 | --- | --- |
+| **Dashboard** (`/dashboard`) | everything still to enter — utility types and income sources with timeline gaps, each with its coverage bar. Click a red block (or the period row) to jump straight to the bill / figure form, prefilled with that period |
 | **Property setup** | dwelling, floor areas / let %, GST flag, depreciation-method default (ATO link), owners + shares, listings, property image (printed top-right on the FY PDF) |
 | **Income** | income **sources** (name, owner, frequency, coverage start) with a per-period **coverage** view of what still needs entering; income figures; import the Airbnb earnings **PDF** (monthly totals, overwrites, **original PDF kept**), import history, nights booked + reservations |
 | **Expenses** | two tabs — **Ad hoc** (with receipt upload, vendor keyword search, date-range and category filters) and **Utilities** |

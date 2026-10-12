@@ -4,6 +4,7 @@ import { api, ensureCsrf } from './api'
 import { Alert, Field } from './components'
 import { PropertyProvider } from './store'
 import PropertySetup from './pages/PropertySetup'
+import Dashboard from './pages/Dashboard'
 import Income from './pages/Income'
 import Expenses from './pages/Expenses'
 import Receipts from './pages/Receipts'
@@ -19,6 +20,7 @@ interface Me {
 
 const NAV = [
   { to: '/', label: 'Receipts', end: true },
+  { to: '/dashboard', label: 'Dashboard' },
   { to: '/income', label: 'Income' },
   { to: '/expenses', label: 'Expenses' },
   { to: '/assets', label: 'Depreciating assets' },
@@ -138,6 +140,7 @@ export default function App() {
         <main className="main">
           <Routes>
             <Route path="/" element={<Receipts />} />
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/income" element={<Income />} />
             <Route path="/expenses" element={<Expenses />} />
             <Route path="/receipts" element={<Navigate to="/" replace />} />

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   api,
   fetchList,
@@ -23,7 +24,16 @@ const APPORTION_LABELS: Record<string, string> = {
 }
 
 export default function Expenses() {
-  const [tab, setTab] = useState<'adhoc' | 'utilities' | 'categories'>('adhoc')
+  const [params] = useSearchParams()
+  const [tab, setTab] = useState<'adhoc' | 'utilities' | 'categories'>(() => {
+    const t = params.get('tab')
+    return t === 'utilities' || t === 'categories' || t === 'adhoc' ? t : 'adhoc'
+  })
+  const utilityFocusId = params.get('utility_type') ? Number(params.get('utility_type')) : null
+  const fromParam = params.get('from')
+  const toParam = params.get('to')
+  const utilityFocusPeriod =
+    fromParam && toParam ? { start: fromParam, end: toParam } : null
   return (
     <>
       <h1>Expenses</h1>
@@ -43,7 +53,9 @@ export default function Expenses() {
         </button>
       </div>
       {tab === 'adhoc' ? <AdhocExpenses /> : null}
-      {tab === 'utilities' ? <Utilities /> : null}
+      {tab === 'utilities' ? (
+        <Utilities focusTypeId={utilityFocusId} focusPeriod={utilityFocusPeriod} />
+      ) : null}
       {tab === 'categories' ? <Categories /> : null}
     </>
   )
@@ -782,7 +794,13 @@ function ReceiptCell({ expense, onUploaded }: { expense: Expense; onUploaded: ()
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
-function Utilities() {
+function Utilities({
+  focusTypeId = null,
+  focusPeriod = null,
+}: {
+  focusTypeId?: number | null
+  focusPeriod?: { start: string; end: string } | null
+}) {
   const { selected } = useProperties()
   const [categories, setCategories] = useState<Category[]>([])
   const [types, setTypes] = useState<UtilityType[]>([])
@@ -1048,6 +1066,19 @@ function Utilities() {
     setNotice(`Period prefilled (${start} → ${end}). Add the amount, then save.`)
     billFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
+
+  // Arriving from the Dashboard: focus the utility type (and prefill the gap).
+  const focusApplied = useRef(false)
+  useEffect(() => {
+    if (focusApplied.current || !focusTypeId) return
+    if (!types.some((t) => t.id === focusTypeId)) return
+    focusApplied.current = true
+    setTypeId(focusTypeId)
+    if (focusPeriod?.start && focusPeriod?.end) {
+      prefillGap(focusPeriod.start, focusPeriod.end)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [types, focusTypeId, focusPeriod])
 
   const saveCoverageStart = async (id: number) => {
     if (!covStart) {

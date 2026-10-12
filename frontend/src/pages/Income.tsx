@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   api,
   fetchList,
@@ -23,6 +24,11 @@ const FREQ_LABELS: Record<string, string> = {
 
 export default function Income() {
   const { selected } = useProperties()
+  const [params] = useSearchParams()
+  const focusTypeId = params.get('income_type') ? Number(params.get('income_type')) : null
+  const fromParam = params.get('from')
+  const toParam = params.get('to')
+  const focusPeriod = fromParam && toParam ? { start: fromParam, end: toParam } : null
 
   return (
     <>
@@ -37,7 +43,7 @@ export default function Income() {
         <Alert kind="info">Create a property first, on the Property setup page.</Alert>
       ) : (
         <>
-          <IncomeSources />
+          <IncomeSources focusTypeId={focusTypeId} focusPeriod={focusPeriod} />
           <AirbnbImport />
           <NightsAndReservations />
         </>
@@ -49,7 +55,13 @@ export default function Income() {
 // ---------------------------------------------------------------------------
 // Income sources (types), figures and coverage
 // ---------------------------------------------------------------------------
-function IncomeSources() {
+function IncomeSources({
+  focusTypeId = null,
+  focusPeriod = null,
+}: {
+  focusTypeId?: number | null
+  focusPeriod?: { start: string; end: string } | null
+}) {
   const { selected } = useProperties()
   const [owners, setOwners] = useState<Owner[]>([])
   const [listings, setListings] = useState<Listing[]>([])
@@ -201,10 +213,10 @@ function IncomeSources() {
     })
     if (attachmentRef.current) attachmentRef.current.value = ''
   }
-  const prefillPeriod = (start: string, end: string) => {
+  const prefillPeriod = (start: string, end: string, idOverride?: number) => {
     setEditingEntryId(null)
     setEntry({
-      income_type: typeId ? String(typeId) : '',
+      income_type: String(idOverride ?? typeId ?? ''),
       period_start: start,
       period_end: end,
       amount: '',
@@ -217,6 +229,19 @@ function IncomeSources() {
     setNotice(`Period prefilled (${start} → ${end}). Enter the amount, then save.`)
     entryFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
+
+  // Arriving from the Dashboard: focus the income source (and prefill the gap).
+  const focusApplied = useRef(false)
+  useEffect(() => {
+    if (focusApplied.current || !focusTypeId) return
+    if (!types.some((t) => t.id === focusTypeId)) return
+    focusApplied.current = true
+    setTypeId(focusTypeId)
+    if (focusPeriod?.start && focusPeriod?.end) {
+      prefillPeriod(focusPeriod.start, focusPeriod.end, focusTypeId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [types, focusTypeId, focusPeriod])
   const startEditEntry = (e: IncomeEntry) => {
     setEditingEntryId(e.id)
     setTypeId(e.income_type)

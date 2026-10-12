@@ -157,6 +157,8 @@ tfoot td { font-weight: 700; }
 .covseg { height: 100%; }
 .covseg.covered { background: var(--accent); }
 .covseg.gap { background: repeating-linear-gradient(45deg, #f3b0ad, #f3b0ad 6px, #f8cbc9 6px, #f8cbc9 12px); }
+.covseg.clickable { cursor: pointer; }
+.covseg.clickable:hover { filter: brightness(0.93); box-shadow: inset 0 0 0 2px rgba(180, 35, 24, 0.55); }
 tr.selected-row { background: #f2f8f5; }
 
 /* ---------------------------------------------------------------------------

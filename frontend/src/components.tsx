@@ -58,20 +58,47 @@ export interface CoverageBarData {
   segments: CoverageSegment[]
 }
 
-/** Proportional strip showing covered (green) vs uncovered (red) periods. */
-export function CoverageBar({ coverage }: { coverage: CoverageBarData }) {
+/**
+ * Proportional strip showing covered (green) vs uncovered/gap (red) periods.
+ * When ``onGapClick`` is supplied, gap segments become buttons — used by the
+ * Dashboard to jump straight to entering the missing figure.
+ */
+export function CoverageBar({
+  coverage,
+  onGapClick,
+}: {
+  coverage: CoverageBarData
+  onGapClick?: (gap: CoverageSegment) => void
+}) {
   if (!coverage.computable) return null
   return (
     <div style={{ marginTop: 12 }}>
       <div className="covbar">
-        {coverage.segments.map((s, i) => (
-          <div
-            key={i}
-            className={`covseg ${s.kind === 'covered' ? 'covered' : 'gap'}`}
-            style={{ width: `${s.width_pct}%` }}
-            title={`${s.kind === 'covered' ? 'Covered' : 'Uncovered'}: ${s.start} → ${s.end} (${s.days} days)`}
-          />
-        ))}
+        {coverage.segments.map((s, i) => {
+          const clickable = s.kind === 'gap' && onGapClick
+          return (
+            <div
+              key={i}
+              className={`covseg ${s.kind === 'covered' ? 'covered' : 'gap'}${clickable ? ' clickable' : ''}`}
+              style={{ width: `${s.width_pct}%` }}
+              title={
+                clickable
+                  ? `Add a figure for ${s.start} → ${s.end} (${s.days} days)`
+                  : `${s.kind === 'covered' ? 'Covered' : 'Uncovered'}: ${s.start} → ${s.end} (${s.days} days)`
+              }
+              role={clickable ? 'button' : undefined}
+              tabIndex={clickable ? 0 : undefined}
+              onClick={clickable ? () => onGapClick?.(s) : undefined}
+              onKeyDown={
+                clickable
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') onGapClick?.(s)
+                    }
+                  : undefined
+              }
+            />
+          )
+        })}
       </div>
       <div className="row" style={{ justifyContent: 'space-between', fontSize: 12 }}>
         <span className="muted">{coverage.start}</span>
