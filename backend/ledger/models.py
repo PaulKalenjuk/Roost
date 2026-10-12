@@ -438,6 +438,13 @@ class EarningsSummary(TimestampedModel):
     source = models.CharField(max_length=30, default="airbnb_pdf")
     source_file = models.CharField(max_length=255, blank=True)
 
+    def clean(self):
+        super().clean()
+        if self.period_start and self.period_end and self.period_start > self.period_end:
+            raise ValidationError(
+                {"period_end": "The period end must be on or after the period start."}
+            )
+
     class Meta:
         ordering = ["-period_end", "-period_start"]
         verbose_name_plural = "earnings summaries"
@@ -564,6 +571,13 @@ class IncomeEntry(TimestampedModel):
     source = models.CharField(max_length=30, default="manual")
     external_id = models.CharField(max_length=120, blank=True)
     notes = models.TextField(blank=True)
+
+    def clean(self):
+        super().clean()
+        if self.period_start and self.period_end and self.period_start > self.period_end:
+            raise ValidationError(
+                {"period_end": "The period end must be on or after the period start."}
+            )
 
     class Meta:
         ordering = ["-period_start", "-id"]
@@ -1142,6 +1156,13 @@ class UtilityBill(TimestampedModel):
         Expense, null=True, blank=True, on_delete=models.SET_NULL,
         related_name="utility_bill",
     )
+
+    def clean(self):
+        super().clean()
+        if self.period_start and self.period_end and self.period_start > self.period_end:
+            raise ValidationError(
+                {"period_end": "The period end must be on or after the period start."}
+            )
 
     class Meta:
         ordering = ["-bill_date", "-id"]

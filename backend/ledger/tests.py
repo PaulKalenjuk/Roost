@@ -17,6 +17,7 @@ from unittest import mock
 from urllib.parse import urlsplit
 
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
@@ -1828,6 +1829,49 @@ class UtilityBillEditTests(BaseLedgerTestCase):
         self.assertFalse(Expense.objects.filter(pk=expense_id).exists())
         self.assertEqual(Expense.objects.filter(kind=Expense.KIND_UTILITY).count(), 0)
 
+    def test_period_end_before_start_is_rejected(self):
+        response = self.client.post(
+            "/api/utility-bills/",
+            json.dumps(
+                {
+                    "utility_type": self.ut.id,
+                    "bill_date": "2025-08-01",
+                    "period_start": "2025-09-30",
+                    "period_end": "2025-07-01",
+                    "amount": "10.00",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("period_end", response.json())
+
+    def test_equal_period_dates_are_allowed(self):
+        response = self.client.post(
+            "/api/utility-bills/",
+            json.dumps(
+                {
+                    "utility_type": self.ut.id,
+                    "bill_date": "2025-08-01",
+                    "period_start": "2025-08-01",
+                    "period_end": "2025-08-01",
+                    "amount": "10.00",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+    def test_model_clean_rejects_inverted_period(self):
+        bill = UtilityBill(
+            utility_type=self.ut,
+            period_start=dt.date(2025, 9, 30),
+            period_end=dt.date(2025, 7, 1),
+            amount=Decimal("1.00"),
+        )
+        with self.assertRaises(ValidationError):
+            bill.full_clean()
+
     def test_editing_utility_type_reapportions_existing_bills(self):
         bill = self._bill(amount=Decimal("400.00"))
         # 25% let share => 100.00
@@ -2015,6 +2059,20 @@ class IncomeTypeTests(BaseLedgerTestCase):
         cov = self.api.get(f"/api/income-types/{type_id}/coverage/")
         self.assertEqual(cov.status_code, 200, cov.content)
         self.assertGreaterEqual(cov.json()["total_periods"], 1)
+
+    def test_entry_period_order_is_validated(self):
+        response = self.api.post(
+            "/api/income-entries/",
+            {
+                "income_type": self.storage.id,
+                "period_start": "2025-09-30",
+                "period_end": "2025-07-01",
+                "amount": "10.00",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("period_end", response.json())
 
     def test_api_requires_login(self):
         self.api.logout()

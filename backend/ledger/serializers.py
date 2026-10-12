@@ -167,6 +167,15 @@ class IncomeEntrySerializer(BaseSerializer):
             return request.build_absolute_uri(obj.attachment.url)
         return obj.attachment.url if obj.attachment else None
 
+    def validate(self, attrs):
+        start = attrs.get("period_start", getattr(self.instance, "period_start", None))
+        end = attrs.get("period_end", getattr(self.instance, "period_end", None))
+        if start and end and start > end:
+            raise serializers.ValidationError(
+                {"period_end": "The period end must be on or after the period start."}
+            )
+        return attrs
+
 
 class ReceiptSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
@@ -275,6 +284,15 @@ class UtilityBillSerializer(BaseSerializer):
     utility_type_name = serializers.CharField(source="utility_type.name", read_only=True)
     claimable_amount = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     attachment_url = serializers.SerializerMethodField()
+
+    def validate(self, attrs):
+        start = attrs.get("period_start", getattr(self.instance, "period_start", None))
+        end = attrs.get("period_end", getattr(self.instance, "period_end", None))
+        if start and end and start > end:
+            raise serializers.ValidationError(
+                {"period_end": "The period end must be on or after the period start."}
+            )
+        return attrs
 
     class Meta:
         model = UtilityBill
