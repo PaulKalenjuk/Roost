@@ -1675,14 +1675,26 @@ class UtilityCoverageTests(BaseLedgerTestCase):
         self.assertEqual(result["covered_days"], result["total_days"])
 
     def test_gap_is_detected(self):
+        # Only Q1 is billed; Q2 is a real gap. Q3 (Jan–Mar) is the current,
+        # in-progress quarter, so it is not counted as a gap.
         self._bill("2025-07-01", "2025-09-30")
-        self._bill("2025-10-01", "2025-12-31")
         result = coverage_for(self.ut, today=dt.date(2026, 1, 31))
         self.assertEqual(len(result["gaps"]), 1)
-        self.assertEqual(result["gaps"][0]["start"], "2026-01-01")
-        self.assertEqual(result["gaps"][0]["end"], "2026-01-31")
-        self.assertEqual(result["gaps"][0]["days"], 31)
+        self.assertEqual(result["gaps"][0]["start"], "2025-10-01")
+        self.assertEqual(result["gaps"][0]["end"], "2025-12-31")
         self.assertLess(result["coverage_pct"], 100.0)
+        self.assertEqual(result["current_period"]["start"], "2026-01-01")
+
+    def test_current_period_is_not_a_gap(self):
+        # Billed through September; as of mid-October the October bill isn't due.
+        self.ut.frequency = UtilityType.FREQ_MONTHLY
+        self.ut.save()
+        self._bill("2025-07-01", "2025-09-30")
+        result = coverage_for(self.ut, today=dt.date(2025, 10, 12))
+        self.assertEqual(result["end"], "2025-09-30")
+        self.assertEqual(result["gaps"], [])
+        self.assertEqual(result["coverage_pct"], 100.0)
+        self.assertEqual(result["current_period"]["start"], "2025-10-01")
 
     def test_overlapping_bills_counted(self):
         self._bill("2025-07-01", "2025-09-30")
@@ -1921,14 +1933,17 @@ class IncomeTypeTests(BaseLedgerTestCase):
             period_end=dt.date(2025, 9, 30),
             amount=Decimal("300.00"),
         )
-        result = income_coverage(self.storage, today=dt.date(2025, 12, 31))
+        # Q1 entered; Q2 (Oct–Dec) is missing; Q3 (Jan–Mar) is current and not a gap.
+        result = income_coverage(self.storage, today=dt.date(2026, 1, 15))
         self.assertTrue(result["computable"])
-        # Q1 (Jul-Sep) and Q2 (Oct-Dec) are both expected by 31 Dec.
         self.assertEqual(result["total_periods"], 2)
         self.assertEqual(result["entered_periods"], 1)
         self.assertEqual(result["missing_periods"], 1)
         self.assertEqual(result["missing"][0]["start"], "2025-10-01")
         self.assertEqual(result["missing"][0]["end"], "2025-12-31")
+        self.assertEqual(result["current_period"]["start"], "2026-01-01")
+        # One covered quarter then one gap => a two-segment bar.
+        self.assertEqual([s["kind"] for s in result["segments"]], ["covered", "gap"])
 
     def test_coverage_needs_a_start_date(self):
         prop = Property.objects.create(name="No dates")

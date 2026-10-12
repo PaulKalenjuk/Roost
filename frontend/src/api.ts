@@ -397,6 +397,7 @@ export interface Coverage {
   reason: string | null
   start: string | null
   end: string | null
+  current_period: { start: string; end: string } | null
   total_days: number
   covered_days: number
   gap_days: number
@@ -442,6 +443,7 @@ export interface IncomePeriod {
   entered: boolean
   entry: number | null
   amount: string | null
+  current: boolean
 }
 
 export interface IncomeCoverage {
@@ -459,12 +461,14 @@ export interface IncomeCoverage {
   reason: string | null
   start: string | null
   end: string | null
+  current_period: { start: string; end: string } | null
   total_periods: number
   entered_periods: number
   missing_periods: number
   coverage_pct: number
   periods: IncomePeriod[]
   missing: { start: string; end: string }[]
+  segments: CoverageSegment[]
 }
 
 // ---- Helpers ----

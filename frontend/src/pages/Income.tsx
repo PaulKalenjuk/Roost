@@ -12,7 +12,7 @@ import {
   type Owner,
   type Reservation,
 } from '../api'
-import { Alert, Field, Loading } from '../components'
+import { Alert, CoverageBar, Field, Loading } from '../components'
 import { useProperties } from '../store'
 
 const FREQ_LABELS: Record<string, string> = {
@@ -457,6 +457,15 @@ function IncomeSources() {
                   </span>
                 ) : null}
               </div>
+
+              <CoverageBar coverage={focused} />
+              {focused.current_period ? (
+                <p className="muted" style={{ marginTop: 4 }}>
+                  Current {focused.frequency_label.toLowerCase()} period (
+                  {focused.current_period.start} → {focused.current_period.end}) is in
+                  progress and isn't counted as a gap.
+                </p>
+              ) : null}
 
               {focused.missing.length ? (
                 <>

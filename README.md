@@ -64,9 +64,11 @@ Airbnb is one income source among many. Each source belongs to a property, has a
 **frequency** (monthly / quarterly / yearly), an optional **owner**, and a
 "track from" date. You enter one **income figure** per period (with an optional
 gross, the GST collected, and an optional **attachment** — a statement,
-remittance or invoice kept with the figure). The coverage view lists the periods between the
-track-from date and today and flags the ones with no figure yet, so nothing is
-silently missed before a BAS or tax return.
+remittance or invoice kept with the figure). The coverage view draws a
+**timeline bar** (green = entered, red = gap) and lists the periods with no
+figure yet, so nothing is silently missed before a BAS or tax return. The
+**current, incomplete period is never shown as a gap** — mid-October a monthly
+item doesn't nag about October; the same applies to utility bills.
 
 - Airbnb's own source is created automatically the first time you import an
   earnings report; re-importing overwrites the same months (keyed on the source

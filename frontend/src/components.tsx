@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { api, type Category, type Coverage } from './api'
+import { api, type Category, type Coverage, type CoverageSegment } from './api'
 import { useProperties } from './store'
 
 export function Alert({ kind, children }: { kind: 'ok' | 'err' | 'info'; children: ReactNode }) {
@@ -50,8 +50,16 @@ export function Loading({ what = 'data' }: { what?: string }) {
   return <p className="muted">Loading {what}…</p>
 }
 
+/** Anything with a timeline of covered/gap segments (utility or income coverage). */
+export interface CoverageBarData {
+  computable: boolean
+  start: string | null
+  end: string | null
+  segments: CoverageSegment[]
+}
+
 /** Proportional strip showing covered (green) vs uncovered (red) periods. */
-export function CoverageBar({ coverage }: { coverage: Coverage }) {
+export function CoverageBar({ coverage }: { coverage: CoverageBarData }) {
   if (!coverage.computable) return null
   return (
     <div style={{ marginTop: 12 }}>

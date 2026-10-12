@@ -1,8 +1,13 @@
-"""Bill-coverage analysis for a utility type.
+"""Coverage analysis for utility types and income sources.
 
-Answers: *since the property was purchased, which dates have a bill covering
-them, and where are the gaps?*  Pure date arithmetic — no ORM writes — so it is
-cheap to call for every utility type on a page.
+* **Utilities** are day-based: *since the property was purchased, which dates
+  have a bill covering them, and where are the gaps?*
+* **Income** is period-based: *which months / quarters / years have a figure,
+  and which still need one?*
+
+Both ignore the **current, incomplete period** — as of mid-October, an October
+monthly item isn't "missing" yet, because the bill hasn't arrived.  Pure date
+arithmetic — no ORM writes — so it is cheap to call for every row on a page.
 
 A bill "covers" the range ``period_start..period_end`` inclusive.  Bills without
 both dates can't contribute (they're reported separately).  The window runs from
@@ -27,15 +32,33 @@ def _month_bounds(d):
     return start, nxt - ONE_DAY
 
 
-def income_period_bounds(frequency, date_obj):
-    """The month / quarter / year block containing ``date_obj`` (inclusive)."""
+def _half_year_bounds(d):
+    if d.month <= 6:
+        return dt.date(d.year, 1, 1), dt.date(d.year, 6, 30)
+    return dt.date(d.year, 7, 1), dt.date(d.year, 12, 31)
+
+
+def period_bounds_for(frequency, date_obj):
+    """The month / quarter / half-year / year block containing ``date_obj``.
+
+    Returns ``None`` for a frequency with no fixed period (``other``).
+    """
     from . import fiscal
 
+    if frequency == "monthly":
+        return _month_bounds(date_obj)
     if frequency == "quarterly":
         return fiscal.quarter_bounds(fiscal.quarter_label(date_obj))
+    if frequency == "half_yearly":
+        return _half_year_bounds(date_obj)
     if frequency == "yearly":
         return fiscal.fy_bounds(fiscal.fy_label(date_obj))
-    return _month_bounds(date_obj)
+    return None
+
+
+def income_period_bounds(frequency, date_obj):
+    """Back-compat alias — the block containing ``date_obj`` for a frequency."""
+    return period_bounds_for(frequency, date_obj)
 
 
 def coverage_for(utility_type, today=None):
@@ -60,6 +83,7 @@ def coverage_for(utility_type, today=None):
         "reason": None,
         "start": None,
         "end": None,
+        "current_period": None,
         "total_days": 0,
         "covered_days": 0,
         "gap_days": 0,
@@ -75,6 +99,14 @@ def coverage_for(utility_type, today=None):
         )
         return result
 
+    # The current, incomplete period isn't counted — a bill for it isn't due yet.
+    current = period_bounds_for(utility_type.frequency, today)
+    if current is not None:
+        result["current_period"] = {
+            "start": current[0].isoformat(),
+            "end": current[1].isoformat(),
+        }
+
     intervals = []
     for bill in bills:
         if bill.period_start and bill.period_end and bill.period_start <= bill.period_end:
@@ -85,13 +117,16 @@ def coverage_for(utility_type, today=None):
     end = today
     if intervals:
         end = max(end, max(i[1] for i in intervals))
+    # Don't measure gaps inside the current (in-progress) period.
+    if current is not None and current[0] <= today:
+        end = min(end, current[0] - ONE_DAY)
     if end < start:
         end = start
 
     # Count overlapping periods so double-ups are visible.
     ordered = sorted(i[:2] for i in intervals)
-    for previous, current in zip(ordered, ordered[1:]):
-        if current[0] <= previous[1]:
+    for previous, current_iv in zip(ordered, ordered[1:]):
+        if current_iv[0] <= previous[1]:
             result["overlaps"] += 1
 
     # Clamp to the window, then merge contiguous/overlapping coverage.
@@ -164,12 +199,12 @@ def coverage_for(utility_type, today=None):
 def income_coverage(income_type, today=None):
     """Which periods for an income type have a figure, and which are missing.
 
-    Unlike utility coverage (which measures *days*), income is entered per
-    period, so we enumerate the expected periods — each month, quarter or year
-    from the start date up to today — and flag the ones with no figure yet.
-
-    Returns a summary dict with a ``periods`` list (``entered`` flag + amount)
-    and a ``missing`` list ready for the UI.
+    Enumerates the expected periods — each month, quarter or year from the start
+    date up to today — and flags the ones with no figure yet.  The **current
+    (incomplete) period** is shown but never counted as missing, so mid-October a
+    monthly source doesn't nag about October.  Also returns day-proportional
+    ``segments`` (covered / gap) for the timeline bar over the *completed*
+    periods.
     """
     today = today or dt.date.today()
     prop = income_type.property
@@ -192,12 +227,14 @@ def income_coverage(income_type, today=None):
         "reason": None,
         "start": None,
         "end": None,
+        "current_period": None,
         "total_periods": 0,
         "entered_periods": 0,
         "missing_periods": 0,
         "coverage_pct": 0.0,
         "periods": [],
         "missing": [],
+        "segments": [],
     }
 
     start = income_type.coverage_start or prop.purchase_date
@@ -215,10 +252,10 @@ def income_coverage(income_type, today=None):
     # Build the expected periods from `start` up to today (capped so we never
     # run away if the dates are odd).
     periods = []
-    cursor, _end0 = income_period_bounds(frequency, start)
+    cursor, _end0 = period_bounds_for(frequency, start)
     guard = 0
     while cursor <= today and guard < 600:
-        _, pend = income_period_bounds(frequency, cursor)
+        _, pend = period_bounds_for(frequency, cursor)
         periods.append((cursor, pend))
         cursor = pend + ONE_DAY
         guard += 1
@@ -231,34 +268,57 @@ def income_coverage(income_type, today=None):
 
     rows = []
     missing = []
+    segments = []
+    completed = 0
     entered = 0
+    span_start = periods[0][0] if periods else None
+    span_end = None
     for ps, pe in periods:
         match = entry_for(ps, pe)
+        is_current = pe >= today  # the (possibly unfinished) period containing today
         row = {
             "start": ps.isoformat(),
             "end": pe.isoformat(),
             "entered": match is not None,
             "entry": match.id if match else None,
             "amount": str(match.amount) if match else None,
+            "current": is_current,
         }
         rows.append(row)
+        if is_current:
+            result["current_period"] = {"start": row["start"], "end": row["end"]}
+            continue  # never a gap, and not counted in the totals
+        completed += 1
+        span_end = pe
         if match is None:
             missing.append({"start": row["start"], "end": row["end"]})
+            segments.append(("gap", ps, pe))
         else:
             entered += 1
+            segments.append(("covered", ps, pe))
 
-    total = len(periods)
+    total_days = (span_end - span_start).days + 1 if (span_start and span_end) else 0
     result.update(
         {
             "computable": True,
-            "start": periods[0][0].isoformat() if periods else start.isoformat(),
-            "end": today.isoformat(),
-            "total_periods": total,
+            "start": span_start.isoformat() if span_start else start.isoformat(),
+            "end": span_end.isoformat() if span_end else start.isoformat(),
+            "total_periods": completed,
             "entered_periods": entered,
-            "missing_periods": total - entered,
-            "coverage_pct": round(entered / total * 100, 1) if total else 0.0,
+            "missing_periods": completed - entered,
+            "coverage_pct": round(entered / completed * 100, 1) if completed else 0.0,
             "periods": rows,
             "missing": missing,
+            "segments": [
+                {
+                    "kind": kind,
+                    "start": s.isoformat(),
+                    "end": e.isoformat(),
+                    "days": (e - s).days + 1,
+                    "width_pct": round(((e - s).days + 1) / total_days * 100, 2) if total_days else 0,
+                }
+                for kind, s, e in segments
+            ],
         }
     )
     return result
